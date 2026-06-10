@@ -5,7 +5,8 @@ LABEL version="2.1.0"
 
 ENV TZ=Asia/Shanghai
 
-COPY --from=mlocati/docker-php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+RUN chmod +x /usr/local/bin/install-php-extensions
 
 RUN apt-get update && apt-get install -y \
     openssl \
