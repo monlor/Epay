@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     libgmp-dev \
     libcurl4-openssl-dev \
     libzip-dev \
+    libonig-dev \
     openssl \
     rsync \
     git \
