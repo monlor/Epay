@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     openssl \
     rsync \
     git \
+    supervisor \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -35,6 +36,9 @@ RUN cp -r /var/www/html/docker-plugins/* /var/www/html/plugins/ \
     && rm -rf /var/www/html/docker-plugins /var/www/html/docker-assets
 
 RUN chown -R www-data:www-data /var/www/html
+
+COPY supervisord.conf /etc/supervisor/supervisord.conf
+COPY supervisor/ /etc/supervisor/conf.d/
 
 COPY start.sh /opt/start.sh
 RUN chmod +x /opt/start.sh

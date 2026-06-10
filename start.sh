@@ -35,4 +35,4 @@ try {
 fi
 
 chown -R www-data:www-data /var/www/html
-apache2-foreground
+exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
