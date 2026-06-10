@@ -12,16 +12,12 @@ if [ -n "${INSTALLED:-}" ]; then
 else
     echo "使用挂载卷保存安装状态..."
 
-    if [ ! -d /data/install ]; then
+    if [ ! -L /var/www/html/install ]; then
         mkdir -p /data/install
+        mv -f /var/www/html/install/* /data/install
+        rm -rf /var/www/html/install
+        ln -sf /data/install /var/www/html/install
     fi
-
-    # 先更新安装文件
-    mv -f /var/www/html/install/* /data/install
-    rm -rf /var/www/html/install
-
-    # 软连接安装文件，保存install.lock
-    ln -sf /data/install /var/www/html/install
 fi
 
 cat > /var/www/html/config.php <<-EOF
