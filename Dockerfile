@@ -34,7 +34,7 @@ RUN cp -r /var/www/html/docker-plugins/* /var/www/html/plugins/ \
     && cp -r /var/www/html/docker-assets/* /var/www/html/assets/ \
     && rm -rf /var/www/html/docker-plugins /var/www/html/docker-assets
 
-RUN chmod -R 777 /var/www/html
+RUN chown -R www-data:www-data /var/www/html
 
 COPY start.sh /opt/start.sh
 RUN chmod +x /opt/start.sh
