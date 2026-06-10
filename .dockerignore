@@ -1,0 +1,6 @@
+.git
+.github
+*.md
+IIS.txt
+nginx.txt
+config.php
