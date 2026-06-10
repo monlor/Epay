@@ -12,13 +12,18 @@ if [ -n "${INSTALLED:-}" ]; then
 else
     echo "使用挂载卷保存安装状态..."
 
-    if [ ! -d /data/install ]; then
-        mkdir -p /data/install
-        cp -a /opt/install-template/. /data/install/
+    # 如果 symlink 存在但目标已被删除，先移除断链
+    if [ -L /var/www/html/install ] && [ ! -d /data/install ]; then
+        rm /var/www/html/install
     fi
 
+    # /var/www/html/install 是真实目录时（首次启动或两者都被删后重启），迁移文件
     if [ ! -L /var/www/html/install ]; then
-        rm -rf /var/www/html/install
+        mkdir -p /data/install
+        if [ -d /var/www/html/install ]; then
+            mv -f /var/www/html/install/* /data/install/
+            rm -rf /var/www/html/install
+        fi
         ln -sf /data/install /var/www/html/install
     fi
 fi
