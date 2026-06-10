@@ -2,32 +2,6 @@
 
 set -e
 
-if [ -n "${INSTALLED:-}" ]; then
-    echo "使用环境变量设置安装状态..."
-    if [ "${INSTALLED}" = "true" ]; then
-        echo "安装锁" > /var/www/html/install/install.lock
-    else
-        rm -rf /var/www/html/install/install.lock
-    fi
-else
-    echo "使用挂载卷保存安装状态..."
-
-    # 如果 symlink 存在但目标已被删除，先移除断链
-    if [ -L /var/www/html/install ] && [ ! -d /data/install ]; then
-        rm /var/www/html/install
-    fi
-
-    # /var/www/html/install 是真实目录时（首次启动或两者都被删后重启），迁移文件
-    if [ ! -L /var/www/html/install ]; then
-        mkdir -p /data/install
-        if [ -d /var/www/html/install ]; then
-            mv -f /var/www/html/install/* /data/install/
-            rm -rf /var/www/html/install
-        fi
-        ln -sf /data/install /var/www/html/install
-    fi
-fi
-
 cat > /var/www/html/config.php <<-EOF
 <?php
     /*数据库配置*/
@@ -41,6 +15,24 @@ cat > /var/www/html/config.php <<-EOF
     );
 EOF
 
+LOCK_FILE=/var/www/html/install/install.lock
+
+if [ -n "${DB_HOST}" ] && [ -n "${DB_USERNAME}" ]; then
+    if php -r '
+try {
+    $pdo = new PDO(
+        "mysql:host=" . getenv("DB_HOST") . ";port=" . (getenv("DB_PORT") ?: 3306) . ";dbname=" . getenv("DB_DATABASE"),
+        getenv("DB_USERNAME"), getenv("DB_PASSWORD"),
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT => 3]
+    );
+    $pdo->query("SELECT 1 FROM pay_config LIMIT 1");
+    exit(0);
+} catch (Exception $e) { exit(1); }
+' > /dev/null 2>&1; then
+        echo "检测到已安装，写入安装锁"
+        echo "installed" > "$LOCK_FILE"
+    fi
+fi
+
 chown -R www-data:www-data /var/www/html
-chown -R www-data:www-data /data
 apache2-foreground
