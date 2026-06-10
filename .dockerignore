@@ -4,3 +4,7 @@
 IIS.txt
 nginx.txt
 config.php
+*.log
+*.tmp
+*.swp
+.DS_Store

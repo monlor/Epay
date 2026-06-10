@@ -29,7 +29,7 @@ cat > /var/www/html/config.php <<-EOF
     /*数据库配置*/
     \$dbconfig=array(
         'host' => '${DB_HOST}', //数据库服务器
-        'port' => ${DB_PORT}, //数据库端口
+        'port' => ${DB_PORT:-3306}, //数据库端口
         'user' => '${DB_USERNAME}', //数据库用户名
         'pwd' => '${DB_PASSWORD}', //数据库密码
         'dbname' => '${DB_DATABASE}', //数据库名
