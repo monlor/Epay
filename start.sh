@@ -34,4 +34,5 @@ cat > /var/www/html/config.php <<-EOF
 EOF
 
 chown -R www-data:www-data /var/www/html
+chown -R www-data:www-data /data
 apache2-foreground
