@@ -5,32 +5,16 @@ LABEL version="2.1.0"
 
 ENV TZ=Asia/Shanghai
 
+COPY --from=mlocati/docker-php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+
 RUN apt-get update && apt-get install -y \
-    libfreetype6-dev \
-    libjpeg62-turbo-dev \
-    libpng-dev \
-    libgmp-dev \
-    libcurl4-openssl-dev \
-    libzip-dev \
-    libonig-dev \
     openssl \
     rsync \
     git \
-    && docker-php-ext-configure gd \
-        --with-freetype \
-        --with-jpeg \
-    && docker-php-ext-install -j"$(nproc)" \
-        gd \
-        mysqli \
-        pdo \
-        pdo_mysql \
-        bcmath \
-        gmp \
-        curl \
-        mbstring \
-        zip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+RUN install-php-extensions gd mysqli pdo pdo_mysql bcmath gmp curl mbstring zip
 
 WORKDIR /var/www/html
 
