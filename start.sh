@@ -12,9 +12,12 @@ if [ -n "${INSTALLED:-}" ]; then
 else
     echo "使用挂载卷保存安装状态..."
 
-    if [ ! -L /var/www/html/install ]; then
+    if [ ! -d /data/install ]; then
         mkdir -p /data/install
-        mv -f /var/www/html/install/* /data/install
+        cp -a /opt/install-template/. /data/install/
+    fi
+
+    if [ ! -L /var/www/html/install ]; then
         rm -rf /var/www/html/install
         ln -sf /data/install /var/www/html/install
     fi
