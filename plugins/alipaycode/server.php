@@ -22,7 +22,6 @@ while(true){
     $now = time();
     $list = $DB->getAll("SELECT trade_no,realmoney FROM pre_order WHERE channel='{$channel['id']}'{$sql} AND status=0 AND addtime>=DATE_SUB(NOW(), INTERVAL 8 MINUTE)");
     if(empty($list)){
-        echo '暂无未支付订单...'.PHP_EOL;
         goto WAIT;
     }
     $start_time = date('Y-m-d H:i:s', time()-180);
