@@ -11,7 +11,6 @@ RUN chmod +x /usr/local/bin/install-php-extensions
 RUN apt-get update && apt-get install -y \
     openssl \
     rsync \
-    git \
     supervisor \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -25,15 +24,6 @@ COPY apache-vhost.conf /etc/apache2/sites-available/000-default.conf
 RUN a2enmod rewrite
 
 COPY . /var/www/html/
-
-RUN git clone --depth 1 https://github.com/LightCountry/TokenPay /tmp/tokenpay \
-    && cat /tmp/tokenpay/Plugs/epay/*.sql > /var/www/html/epay.sql \
-    && cp -a /tmp/tokenpay/Plugs/epay/. /var/www/html/ \
-    && rm -rf /tmp/tokenpay
-
-RUN cp -r /var/www/html/docker-plugins/* /var/www/html/plugins/ \
-    && cp -r /var/www/html/docker-assets/* /var/www/html/assets/ \
-    && rm -rf /var/www/html/docker-plugins /var/www/html/docker-assets
 
 RUN chown -R www-data:www-data /var/www/html
 
