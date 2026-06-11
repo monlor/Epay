@@ -36,8 +36,4 @@ fi
 
 chown -R www-data:www-data /var/www/html
 
-if [ -z "${ALIPAYCODE_CHANNEL}" ]; then
-    rm -f /etc/supervisor/conf.d/alipaycode.conf
-fi
-
 exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
