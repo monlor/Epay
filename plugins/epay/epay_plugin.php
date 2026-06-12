@@ -7,7 +7,7 @@ class epay_plugin
 		'showname'    => '彩虹易支付', //支付插件显示名称
 		'author'      => '彩虹', //支付插件作者
 		'link'        => '', //支付插件作者链接
-		'types'       => ['alipay','qqpay','wxpay','bank','jdpay','douyinpay'], //支付插件支持的支付方式，可选的有alipay,qqpay,wxpay,bank
+		'types'       => ['alipay','qqpay','wxpay','bank','jdpay','douyinpay','usdt.trc20','usdt.polygon','usdt.aptos','usdt.arbitrum'], //支付插件支持的支付方式，可选的有alipay,qqpay,wxpay,bank
 		'inputs' => [ //支付插件要求传入的参数以及参数显示名称，可选的有appid,appkey,appsecret,appurl,appmchid
 			'appurl' => [
 				'name' => '接口地址',
@@ -69,7 +69,7 @@ class epay_plugin
 
 	static public function mapi(){
 		global $siteurl, $channel, $order, $conf, $device, $mdevice;
-		
+
 		if($channel['appswitch']==1){
 			$typename = $order['typename'];
 			return self::$typename();
@@ -222,7 +222,7 @@ class epay_plugin
 		}catch(Exception $ex){
 			return ['type'=>'error','msg'=>$ex->getMessage()];
 		}
-		
+
 		if($method == 'jump'){
 			return ['type'=>'jump','url'=>$url];
 		}else{
@@ -329,7 +329,7 @@ class epay_plugin
 
 		$epay = new EpayCore($epay_config);
 		$result = $epay->refund($order['refund_no'], $order['api_trade_no'], $order['refundmoney']);
-		
+
 		if($result['code'] == 0){
 			return ['code'=>0];
 		}else{
