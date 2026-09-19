@@ -4,29 +4,20 @@ class Telegram
 {
 	static public function api($token, $method, $params)
 	{
-		$url = 'https://api.telegram.org/bot'.$token.'/'.$method;
-		$resp = get_curl($url, json_encode($params, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 0, 0, 0, 0, 0, ['Content-Type: application/json']);
-		$result = json_decode($resp, true);
-		if (!is_array($result)) {
-			throw new Exception('Telegram 接口无响应');
-		}
-		if (empty($result['ok'])) {
-			$msg = isset($result['description']) ? $result['description'] : 'Telegram 接口调用失败';
-			throw new Exception($msg);
-		}
-		return $result;
+		return self::request($token, $method, $params, true);
 	}
 
 	static public function setWebhook($token, $url, $secret = '')
 	{
+		if (trim((string)$secret) === '') {
+			throw new Exception('Webhook 密钥不能为空');
+		}
 		$params = [
 			'url' => $url,
 			'allowed_updates' => ['callback_query'],
 			'drop_pending_updates' => false,
 		];
-		if ($secret !== '') {
-			$params['secret_token'] = $secret;
-		}
+		$params['secret_token'] = $secret;
 		return self::api($token, 'setWebhook', $params);
 	}
 
@@ -87,23 +78,53 @@ class Telegram
 
 	static private function upload($token, $method, $params)
 	{
-		$url = 'https://api.telegram.org/bot'.$token.'/'.$method;
+		return self::request($token, $method, $params, false)['result']['message_id'];
+	}
+
+	static private function request($token, $method, $params, $json)
+	{
+		if ((string)$token === '') {
+			throw new Exception('Telegram Bot Token 不能为空');
+		}
+		$payload = $json ? json_encode($params, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : $params;
+		if ($json && $payload === false) {
+			throw new Exception('Telegram 请求参数无效');
+		}
+
 		$ch = curl_init();
-		curl_setopt($ch, CURLOPT_URL, $url);
-		curl_setopt($ch, CURLOPT_POST, true);
-		curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
-		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-		curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+		if ($ch === false) {
+			throw new Exception('Telegram 请求初始化失败');
+		}
+		curl_setopt_array($ch, [
+			CURLOPT_URL => 'https://api.telegram.org/bot'.$token.'/'.$method,
+			CURLOPT_POST => true,
+			CURLOPT_POSTFIELDS => $payload,
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_SSL_VERIFYPEER => true,
+			CURLOPT_SSL_VERIFYHOST => 2,
+			CURLOPT_CONNECTTIMEOUT => 3,
+			CURLOPT_TIMEOUT => 10,
+			CURLOPT_FOLLOWLOCATION => false,
+		]);
+		if ($json) {
+			curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+		}
 		$resp = curl_exec($ch);
+		$error = curl_error($ch);
+		$http_code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
 		curl_close($ch);
+		if ($resp === false) {
+			throw new Exception($error !== '' ? 'Telegram 网络请求失败' : 'Telegram 接口无响应');
+		}
 		$result = json_decode($resp, true);
-		if (!is_array($result) || empty($result['ok'])) {
-			$msg = is_array($result) && isset($result['description']) ? $result['description'] : 'Telegram 上传失败';
+		if (!is_array($result)) {
+			throw new Exception($http_code >= 400 ? 'Telegram 接口请求失败' : 'Telegram 接口无响应');
+		}
+		if (empty($result['ok'])) {
+			$msg = isset($result['description']) ? $result['description'] : 'Telegram 接口调用失败';
 			throw new Exception($msg);
 		}
-		return $result['result']['message_id'];
+		return $result;
 	}
 
 	static public function answer($token, $callback_id, $text, $alert = false)

@@ -19,17 +19,17 @@ check($a === '11.12', "second decimal +0.01, got $a");
 $a = AmountMark::pick(11.11, ['11.11', '11.12']);
 check($a === '11.13', "third decimal +0.02, got $a");
 
-$a = AmountMark::pick('11.00', [], function ($cands) { return $cands[0]; });
-check($a === '11.00', "integer can pick .00, got $a");
+$a = AmountMark::pick('11.00', []);
+check($a === '11.01', "integer first is +0.01, got $a");
 
-$a = AmountMark::pick(11, ['11.00'], function ($cands) { return $cands[0]; });
-check($a === '11.01', "integer skips used .00, got $a");
+$a = AmountMark::pick(11, ['11.01']);
+check($a === '11.02', "integer second +0.02, got $a");
 
 $used = [];
-for ($i = 0; $i < 99; $i++) {
+for ($i = 1; $i < 99; $i++) {
 	$used[] = AmountMark::fromCents(1100 + $i);
 }
-$a = AmountMark::pick(11, $used, function ($cands) { return $cands[0]; });
+$a = AmountMark::pick(11, $used);
 check($a === '11.99', "integer last slot 11.99, got $a");
 
 $threw = false;
@@ -49,12 +49,14 @@ try {
 	}
 	AmountMark::pick('11.11', $used);
 } catch (Exception $e) {
-	$threw = true;
+$threw = true;
 }
 check($threw, 'decimal full window throws');
 
-$a = AmountMark::pick(11, [], function ($cands) { return $cands[37]; });
-check($a === '11.37', "integer random index 37, got $a");
+check(AmountMark::isReserved(['amount' => '11.37', 'expire' => 200], 100), 'future reservation is active');
+check(!AmountMark::isReserved(['amount' => '11.37', 'expire' => 100], 100), 'expired reservation is inactive');
+check(!AmountMark::isReserved(['amount' => '11.37', 'expire' => 200, 'released' => 1], 100), 'released reservation is inactive');
+check(!AmountMark::isReserved(['amount' => '11.37', 'expire' => 200, 'closed' => 1], 100), 'closed reservation is inactive');
 
 if ($fail) {
 	echo "$fail failed\n";

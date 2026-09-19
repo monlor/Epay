@@ -793,19 +793,33 @@ function changeUserMoney($uid, $money, $add=true, $type=null, $orderid=null){
 		$isrefund = $DB->getColumn("SELECT id FROM pre_record WHERE uid=:uid AND type='代付退回' AND trade_no=:orderid LIMIT 1", [':uid'=>$uid, ':orderid'=>$orderid]);
 		if($isrefund)return;
 	}
-	$DB->beginTransaction();
-	$oldmoney = $DB->getColumn("SELECT money FROM pre_user WHERE uid=:uid LIMIT 1 FOR UPDATE", [':uid'=>$uid]);
-	if($add == true){
-		$action = 1;
-		$newmoney = round($oldmoney+$money, 2);
-	}else{
-		$action = 2;
-		$newmoney = round($oldmoney-$money, 2);
+	$transactionStarted = false;
+	if (!$DB->inTransaction()) {
+		$transactionStarted = $DB->beginTransaction();
+		if (!$transactionStarted) return false;
 	}
-	$res = $DB->exec("UPDATE pre_user SET money=:money WHERE uid=:uid", [':money'=>$newmoney, ':uid'=>$uid]);
-	$DB->insert('record', ['uid'=>$uid, 'action'=>$action, 'money'=>$money, 'oldmoney'=>$oldmoney, 'newmoney'=>$newmoney, 'type'=>$type, 'trade_no'=>$orderid, 'date'=>'NOW()']);
-	$DB->commit();
-	return $res;
+	try {
+		$oldmoney = $DB->getColumn("SELECT money FROM pre_user WHERE uid=:uid LIMIT 1 FOR UPDATE", [':uid'=>$uid]);
+		if($add == true){
+			$action = 1;
+			$newmoney = round($oldmoney+$money, 2);
+		}else{
+			$action = 2;
+			$newmoney = round($oldmoney-$money, 2);
+		}
+		$res = $DB->exec("UPDATE pre_user SET money=:money WHERE uid=:uid", [':money'=>$newmoney, ':uid'=>$uid]);
+		$record = $DB->insert('record', ['uid'=>$uid, 'action'=>$action, 'money'=>$money, 'oldmoney'=>$oldmoney, 'newmoney'=>$newmoney, 'type'=>$type, 'trade_no'=>$orderid, 'date'=>'NOW()']);
+		if ($res === false || $record === false) {
+			throw new Exception('余额更新失败');
+		}
+		if ($transactionStarted && !$DB->commit()) {
+			throw new Exception('余额更新提交失败');
+		}
+		return $res;
+	} catch (Exception $e) {
+		if ($transactionStarted && $DB->inTransaction()) $DB->rollBack();
+		throw $e;
+	}
 }
 
 function changeUserMoney2($uid, $oldmoney, $money, $add=true, $type=null, $orderid=null){

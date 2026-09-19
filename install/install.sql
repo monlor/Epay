@@ -5,7 +5,7 @@ create table `pre_config` (
 PRIMARY KEY  (`k`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
-INSERT INTO `pre_config` VALUES ('version', '2055');
+INSERT INTO `pre_config` VALUES ('version', '2056');
 INSERT INTO `pre_config` VALUES ('admin_user', 'admin');
 INSERT INTO `pre_config` VALUES ('admin_pwd', '123456');
 INSERT INTO `pre_config` VALUES ('admin_paypwd', '123456');
@@ -102,6 +102,8 @@ INSERT INTO `pre_type` VALUES (4, 'bank', 0, '网银支付', 0);
 INSERT INTO `pre_type` VALUES (5, 'jdpay', 0, '京东支付', 0);
 INSERT INTO `pre_type` VALUES (6, 'paypal', 0, 'PayPal', 0);
 INSERT INTO `pre_type` VALUES (7, 'douyinpay', 0, '抖音支付', 0);
+INSERT INTO `pre_type` VALUES (8, 'alipay_manual', 0, '支付宝转账', 1);
+INSERT INTO `pre_type` VALUES (9, 'wxpay_manual', 0, '微信转账', 1);
 
 DROP TABLE IF EXISTS `pre_plugin`;
 CREATE TABLE `pre_plugin` (

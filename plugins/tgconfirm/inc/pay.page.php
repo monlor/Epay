@@ -11,9 +11,9 @@ if (!defined('IN_PLUGIN')) exit();
 </head>
 <body>
 <script>
-    var userId = "<?php echo $channel['appid']?>";
-    var money = "<?php echo $order['realmoney']?>";
-    var remark = "<?php echo $order['trade_no']?>";
+    var userId = <?php echo json_encode((string)$channel['appid'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    var money = <?php echo json_encode((string)$order['realmoney'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    var remark = <?php echo json_encode((string)$order['trade_no'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
     function returnApp() {
         AlipayJSBridge.call("exitApp")

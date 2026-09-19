@@ -17,7 +17,7 @@ $paytype = \lib\Channel::getTypes($row['uid'], $gid);
 if(checkwechat()){
 	$paytype = array_values($paytype);
 	foreach($paytype as $i=>$s){
-		if($s['name']=='wxpay'){
+		if($s['name']=='wxpay' || $s['name']=='wxpay_manual'){
 			$temp = $paytype[$i];
 			$paytype[$i] = $paytype[0];
 			$paytype[0] = $temp;

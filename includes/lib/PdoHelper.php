@@ -402,6 +402,11 @@ class PdoHelper
 		return $this->db->rollBack();
 	}
 
+	public function inTransaction()
+	{
+		return $this->db->inTransaction();
+	}
+
 	//事务
 	public function transaction($action){
 		if (is_callable($action))

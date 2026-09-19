@@ -7,7 +7,7 @@ class tgconfirm_plugin
 		'showname'    => 'Telegram手动确认',
 		'author'      => 'Epay',
 		'link'        => '',
-		'types'       => ['alipay', 'wxpay'],
+		'types'       => ['alipay', 'alipay_manual', 'wxpay', 'wxpay_manual'],
 		'inputs' => [
 			'appkey' => [
 				'name' => 'Telegram Bot Token',
@@ -22,7 +22,7 @@ class tgconfirm_plugin
 			'appsecret' => [
 				'name' => 'Webhook 密钥',
 				'type' => 'input',
-				'note' => '随机字符串，Telegram secret_token，建议 16 位以上',
+				'note' => '必填随机字符串，Telegram secret_token，建议 16 位以上',
 			],
 			'timeout' => [
 				'name' => '订单超时秒数',
@@ -56,7 +56,7 @@ class tgconfirm_plugin
 			],
 		],
 		'select' => null,
-		'note' => '<p>用户按页面金额转账后点「我已支付」才会给 Telegram 发确认按钮，可选手写说明和上传截图（只转发到 TG，不保存）。确认或自动入账后该金额立即释放。</p><p>默认须上传截图才自动确认。Webhook：<u>[siteurl]pay/webhook/[channel]/</u>　绑定：<u>[siteurl]pay/setwebhook/[channel]/</u>　监控：<u>[siteurl]pay/autocron/[channel]/</u></p>',
+		'note' => '<p>用户按页面金额转账后点「我已支付」才会给 Telegram 发确认按钮，可选手写说明和上传截图（只转发到 TG，不保存）。确认或自动入账后该金额立即释放。</p><p>支持调用值：alipay / alipay_manual / wxpay / wxpay_manual。manual 与原方式页面相同，但是独立支付方式，可各绑一条通道，API 用 type 区分。</p><p>默认须上传截图才自动确认。Webhook：<u>[siteurl]pay/webhook/[channel]/</u>　绑定：<u>[siteurl]pay/setwebhook/[channel]/</u>　监控：<u>[siteurl]pay/autocron/[channel]/</u></p>',
 		'bindwxmp' => false,
 		'bindwxa' => false,
 	];
@@ -84,16 +84,51 @@ class tgconfirm_plugin
 		return !isset($channel['autoproof']) || $channel['autoproof'] === '' || intval($channel['autoproof']) !== 0;
 	}
 
+	static private function webhookSecret()
+	{
+		global $channel;
+		return trim((string)($channel['appsecret'] ?? ''));
+	}
+
+	static private function validateConfig()
+	{
+		global $channel;
+		if (empty($channel['appkey']) || empty($channel['appmchid']) || self::webhookSecret() === '') {
+			throw new Exception('请先配置 Telegram Bot Token、Chat ID 和 Webhook 密钥');
+		}
+	}
+
+	static private function isClosed($ext)
+	{
+		return !empty($ext['closed']) || !empty($ext['released']);
+	}
+
+	static private function isExpired($ext, $now = null)
+	{
+		$now = $now === null ? time() : (int)$now;
+		return empty($ext['expire']) || (int)$ext['expire'] <= $now;
+	}
+
 	static private function loadLib()
 	{
 		require_once PAY_ROOT.'inc/AmountMark.php';
 		require_once PAY_ROOT.'inc/Telegram.php';
 	}
 
+	static private function isAlipay($typename)
+	{
+		return $typename === 'alipay' || $typename === 'alipay_manual';
+	}
+
+	static private function isWxpay($typename)
+	{
+		return $typename === 'wxpay' || $typename === 'wxpay_manual';
+	}
+
 	static public function submit()
 	{
 		global $order;
-		if ($order['typename'] == 'alipay' && function_exists('checkalipay') && checkalipay()) {
+		if (self::isAlipay($order['typename']) && function_exists('checkalipay') && checkalipay()) {
 			return ['type' => 'jump', 'url' => '/pay/pay/'.TRADE_NO.'/'];
 		}
 		return ['type' => 'jump', 'url' => '/pay/qrcode/'.TRADE_NO.'/'];
@@ -120,11 +155,7 @@ class tgconfirm_plugin
 		$claimed = !empty($pay['claimed']);
 		$code_url = self::qrContent($order['typename']);
 		$typename = $order['typename'];
-
-		try {
-			self::bindWebhook();
-		} catch (Exception $e) {
-		}
+		$is_wx = self::isWxpay($typename);
 
 		include PAY_ROOT.'inc/qrcode.page.php';
 		exit;
@@ -142,7 +173,7 @@ class tgconfirm_plugin
 		}
 		$order['realmoney'] = $pay['amount'];
 
-		if ($order['typename'] != 'alipay' || empty($channel['appid'])) {
+		if (!self::isAlipay($order['typename']) || empty($channel['appid'])) {
 			return ['type' => 'jump', 'url' => '/pay/qrcode/'.TRADE_NO.'/'];
 		}
 		if (!function_exists('checkalipay') || !checkalipay()) {
@@ -158,6 +189,11 @@ class tgconfirm_plugin
 		global $DB, $order, $channel;
 
 		self::loadLib();
+		try {
+			self::validateConfig();
+		} catch (Exception $e) {
+			return ['type' => 'json', 'data' => ['code' => -1, 'msg' => $e->getMessage()]];
+		}
 		if (function_exists('checkRefererHost') && !checkRefererHost()) {
 			return ['type' => 'json', 'data' => ['code' => 403, 'msg' => 'forbidden']];
 		}
@@ -169,52 +205,51 @@ class tgconfirm_plugin
 		} catch (Exception $e) {
 			return ['type' => 'json', 'data' => ['code' => -1, 'msg' => $e->getMessage()]];
 		}
-		$first = false;
-
-		$DB->beginTransaction();
+		$transactionStarted = false;
 		try {
+			$transactionStarted = $DB->beginTransaction();
+			if (!$transactionStarted) {
+				throw new Exception('订单处理失败');
+			}
 			$row = $DB->getRow("SELECT A.*,B.name typename,B.showname typeshowname FROM pre_order A left join pre_type B on A.type=B.id WHERE A.trade_no=:trade_no FOR UPDATE", [':trade_no' => $trade_no]);
 			if (!$row) {
 				throw new Exception('订单不存在');
 			}
 			if ($row['status'] > 0) {
-				$DB->commit();
+				if (!$DB->commit()) throw new Exception('订单处理失败');
+				$transactionStarted = false;
 				return ['type' => 'json', 'data' => ['code' => 1, 'msg' => 'ok']];
 			}
 			$ext = self::decodeExt($row['ext']);
+			if (self::isClosed($ext)) {
+				throw new Exception('订单已关闭');
+			}
 			if (empty($ext['amount']) || empty($ext['expire'])) {
 				throw new Exception('请先打开支付页面');
 			}
-			if (time() > intval($ext['expire'])) {
+			if (self::isExpired($ext)) {
 				throw new Exception('订单已超时，请重新下单');
 			}
 			$need_notify = empty($ext['claimed']) || empty($ext['tg']);
 			if (empty($ext['claimed'])) {
 				$ext['claimed'] = time();
-				$first = true;
 			}
 			if ($photo) {
 				$ext['proof'] = 1;
 			}
-			if ($first || $photo) {
-				$DB->update('order', ['ext' => serialize($ext)], ['trade_no' => $trade_no]);
+			if ($DB->update('order', ['ext' => serialize($ext)], ['trade_no' => $trade_no]) === false) {
+				throw new Exception('订单更新失败');
 			}
-			$DB->commit();
-		} catch (Exception $e) {
-			$DB->rollBack();
-			return ['type' => 'json', 'data' => ['code' => -1, 'msg' => $e->getMessage()]];
-		}
-
-		try {
 			if ($need_notify) {
 				self::notifyTelegram($row, $ext, $trade_no, $note, $photo);
 			} elseif ($note !== '' || $photo) {
 				self::sendProofOnly($row, $ext, $note, $photo);
 			}
+			if (!$DB->commit()) throw new Exception('订单处理失败');
+			$transactionStarted = false;
 		} catch (Exception $e) {
-			if ($first) {
-				return ['type' => 'json', 'data' => ['code' => -1, 'msg' => '提交失败，请稍后重试']];
-			}
+			if ($transactionStarted && $DB->inTransaction()) $DB->rollBack();
+			return ['type' => 'json', 'data' => ['code' => -1, 'msg' => $e->getMessage() === '订单处理失败' ? '提交失败，请稍后重试' : $e->getMessage()]];
 		}
 		return ['type' => 'json', 'data' => ['code' => 0, 'msg' => 'ok']];
 	}
@@ -229,16 +264,27 @@ class tgconfirm_plugin
 			return ['type' => 'json', 'data' => ['code' => -1, 'msg' => '订单不存在']];
 		}
 		$ext = self::decodeExt($row['ext']);
+		if ($row['status'] == 0 && self::isClosed($ext)) {
+			return ['type' => 'json', 'data' => ['code' => -4, 'msg' => 'closed']];
+		}
 		if ($row['status'] == 0) {
 			self::maybeAutoConfirm($row, $ext);
 			if ($row['status'] > 0) {
 				return ['type' => 'json', 'data' => ['code' => 1, 'msg' => 'ok']];
 			}
+			$fresh = $DB->getRow("SELECT status,ext FROM pre_order WHERE trade_no=:trade_no LIMIT 1", [':trade_no' => TRADE_NO]);
+			if ($fresh) {
+				$row['status'] = $fresh['status'];
+				$ext = self::decodeExt($fresh['ext']);
+			}
+			if ($row['status'] == 0 && self::isClosed($ext)) {
+				return ['type' => 'json', 'data' => ['code' => -4, 'msg' => 'closed']];
+			}
 		}
 		if ($row['status'] > 0) {
 			return ['type' => 'json', 'data' => ['code' => 1, 'msg' => 'ok']];
 		}
-		if (!empty($ext['expire']) && time() > intval($ext['expire'])) {
+		if (!empty($ext['expire']) && self::isExpired($ext)) {
 			return ['type' => 'json', 'data' => ['code' => -2, 'msg' => 'expired']];
 		}
 		if (!empty($ext['claimed'])) {
@@ -252,7 +298,7 @@ class tgconfirm_plugin
 		global $DB, $channel;
 
 		self::loadLib();
-		$list = $DB->getAll("SELECT A.*,B.name typename,B.showname typeshowname FROM pre_order A left join pre_type B on A.type=B.id WHERE A.channel=:channel AND A.status=0 AND A.addtime>=DATE_SUB(NOW(), INTERVAL ".self::timeout()." SECOND)", [
+		$list = $DB->getAll("SELECT A.*,B.name typename,B.showname typeshowname FROM pre_order A left join pre_type B on A.type=B.id WHERE A.channel=:channel AND A.status=0 AND A.ext IS NOT NULL", [
 			':channel' => $channel['id'],
 		]);
 		$n = 0;
@@ -283,9 +329,14 @@ class tgconfirm_plugin
 		global $channel, $DB;
 
 		self::loadLib();
-		$secret = trim($channel['appsecret']);
-		$header = isset($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN']) ? $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] : '';
-		if ($secret !== '' && !hash_equals($secret, $header)) {
+		try {
+			self::validateConfig();
+		} catch (Exception $e) {
+			return ['type' => 'html', 'data' => 'forbidden'];
+		}
+		$secret = self::webhookSecret();
+		$header = isset($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN']) ? (string)$_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] : '';
+		if ($secret === '' || $header === '' || !hash_equals($secret, $header)) {
 			return ['type' => 'html', 'data' => 'forbidden'];
 		}
 
@@ -295,15 +346,25 @@ class tgconfirm_plugin
 		}
 
 		$cq = $update['callback_query'];
-		$cb_id = $cq['id'];
+		$cb_id = isset($cq['id']) ? (string)$cq['id'] : '';
 		$data = isset($cq['data']) ? $cq['data'] : '';
 		$chat_id = isset($cq['message']['chat']['id']) ? (string)$cq['message']['chat']['id'] : '';
 		$message_id = isset($cq['message']['message_id']) ? $cq['message']['message_id'] : 0;
-		$token = $channel['appkey'];
+		$token = isset($channel['appkey']) ? $channel['appkey'] : '';
+		if ($cb_id === '') {
+			return ['type' => 'html', 'data' => 'ok'];
+		}
 
 		if ((string)$channel['appmchid'] !== $chat_id) {
 			try {
 				Telegram::answer($token, $cb_id, '未授权的对话', true);
+			} catch (Exception $e) {
+			}
+			return ['type' => 'html', 'data' => 'ok'];
+		}
+		if (!is_numeric($message_id) || intval($message_id) <= 0) {
+			try {
+				Telegram::answer($token, $cb_id, '按钮已失效', true);
 			} catch (Exception $e) {
 			}
 			return ['type' => 'html', 'data' => 'ok'];
@@ -319,34 +380,58 @@ class tgconfirm_plugin
 
 		$action = $m[1];
 		$trade_no = $m[2];
-		$row = $DB->getRow("SELECT A.*,B.name typename,B.showname typeshowname FROM pre_order A left join pre_type B on A.type=B.id WHERE A.trade_no=:trade_no LIMIT 1", [':trade_no' => $trade_no]);
-		if (!$row) {
-			self::tgReply($token, $cb_id, $chat_id, $message_id, '订单不存在', true, '订单 '.$trade_no.' 不存在');
-			return ['type' => 'html', 'data' => 'ok'];
+		$who = isset($cq['from']['username']) ? '@'.$cq['from']['username'] : (string)($cq['from']['id'] ?? 'unknown');
+		$row = null;
+		$ext = [];
+		$reply = null;
+		$transactionStarted = false;
+
+		try {
+			$transactionStarted = $DB->beginTransaction();
+			if (!$transactionStarted) {
+				throw new Exception('订单处理失败');
+			}
+			$row = $DB->getRow("SELECT A.*,B.name typename,B.showname typeshowname FROM pre_order A left join pre_type B on A.type=B.id WHERE A.trade_no=:trade_no FOR UPDATE", [':trade_no' => $trade_no]);
+			if (!$row) {
+				$reply = ['toast' => '订单不存在', 'alert' => true, 'text' => '订单 '.$trade_no.' 不存在'];
+			} elseif ((int)$row['channel'] !== (int)$channel['id']) {
+				$reply = ['toast' => '订单通道不匹配', 'alert' => true, 'text' => '订单不属于当前支付通道'];
+			} else {
+				$ext = self::decodeExt($row['ext']);
+				if (!isset($ext['tg']) || (string)$ext['tg'] !== (string)$message_id) {
+					$reply = ['toast' => '按钮已失效', 'alert' => true, 'text' => '该确认按钮已失效'];
+				} elseif ($row['status'] > 0) {
+					$reply = ['toast' => '已入账', 'alert' => false, 'text' => self::orderText($row, $ext, '已入账')."\n操作人: ".Telegram::h($who)];
+				} elseif (self::isClosed($ext)) {
+					$reply = ['toast' => '已关闭', 'alert' => false, 'text' => self::orderText($row, $ext, '已关闭（未入账）')."\n操作人: ".Telegram::h($who)];
+				} elseif (empty($ext['claimed'])) {
+					$reply = ['toast' => '尚未申报', 'alert' => true, 'text' => self::orderText($row, $ext, '尚未申报，不能确认')];
+				} elseif (self::isExpired($ext)) {
+					$reply = ['toast' => '已超时，不能确认', 'alert' => true, 'text' => self::orderText($row, $ext, '已超时，未入账')];
+				} elseif ($action === 'no') {
+					self::releaseAmount($trade_no, $ext);
+					$reply = ['toast' => '已关闭', 'alert' => false, 'text' => self::orderText($row, $ext, '已关闭（未入账）')."\n操作人: ".Telegram::h($who)];
+				} else {
+					processNotify($row, $trade_no, $who);
+					if ((int)$DB->getColumn("SELECT status FROM pre_order WHERE trade_no=:trade_no", [':trade_no' => $trade_no]) !== 1) {
+						throw new Exception('订单入账失败');
+					}
+					$row['status'] = 1;
+					$reply = ['toast' => '已确认入账', 'alert' => false, 'text' => self::orderText($row, $ext, '已确认入账')."\n操作人: ".Telegram::h($who)];
+				}
+			}
+			if (!$DB->commit()) throw new Exception('订单处理失败');
+			$transactionStarted = false;
+		} catch (Exception $e) {
+			if ($transactionStarted && $DB->inTransaction()) {
+				$DB->rollBack();
+			}
+			$reply = ['toast' => '处理失败，请重试', 'alert' => true, 'text' => '订单处理失败，请稍后重试'];
 		}
 
-		$ext = self::decodeExt($row['ext']);
-		$who = isset($cq['from']['username']) ? '@'.$cq['from']['username'] : (string)$cq['from']['id'];
-
-		if ($action === 'no') {
-			self::releaseAmount($trade_no, $ext);
-			self::tgReply($token, $cb_id, $chat_id, $message_id, '已关闭', false, self::orderText($row, $ext, '已关闭（未入账）')."\n操作人: ".Telegram::h($who));
-			return ['type' => 'html', 'data' => 'ok'];
+		if ($reply) {
+			self::tgReply($token, $cb_id, $chat_id, $message_id, $reply['toast'], $reply['alert'], $reply['text']);
 		}
-
-		if ($row['status'] > 0) {
-			self::tgReply($token, $cb_id, $chat_id, $message_id, '已入账', false, self::orderText($row, $ext, '已入账')."\n操作人: ".Telegram::h($who));
-			return ['type' => 'html', 'data' => 'ok'];
-		}
-
-		$expire = isset($ext['expire']) ? intval($ext['expire']) : (strtotime($row['addtime']) + self::timeout());
-		if (time() > $expire) {
-			self::tgReply($token, $cb_id, $chat_id, $message_id, '已超时，不能确认', true, self::orderText($row, $ext, '已超时，未入账'));
-			return ['type' => 'html', 'data' => 'ok'];
-		}
-
-		processNotify($row, $trade_no, $who);
-		self::tgReply($token, $cb_id, $chat_id, $message_id, '已确认入账', false, self::orderText($row, $ext, '已确认入账')."\n操作人: ".Telegram::h($who));
 		return ['type' => 'html', 'data' => 'ok'];
 	}
 
@@ -354,15 +439,17 @@ class tgconfirm_plugin
 	{
 		global $DB, $order, $channel;
 
-		if (empty($channel['appkey']) || empty($channel['appmchid'])) {
-			throw new Exception('请先配置 Telegram Bot Token 和 Chat ID');
-		}
+		self::validateConfig();
 
 		$timeout = self::timeout();
 		$trade_no = TRADE_NO;
 
-		$DB->beginTransaction();
+		$transactionStarted = false;
 		try {
+			$transactionStarted = $DB->beginTransaction();
+			if (!$transactionStarted) {
+				throw new Exception('订单处理失败');
+			}
 			$row = $DB->getRow("SELECT * FROM pre_order WHERE trade_no=:trade_no FOR UPDATE", [':trade_no' => $trade_no]);
 			if (!$row) {
 				throw new Exception('订单不存在');
@@ -372,16 +459,28 @@ class tgconfirm_plugin
 			}
 
 			$ext = self::decodeExt($row['ext']);
+			if (self::isClosed($ext)) {
+				throw new Exception('订单已关闭');
+			}
 			if (!empty($ext['amount']) && !empty($ext['expire'])) {
-				if (time() > intval($ext['expire'])) {
+				if (self::isExpired($ext)) {
 					throw new Exception('订单已超时，请重新下单');
 				}
-				$DB->commit();
+				if (!$DB->commit()) throw new Exception('订单处理失败');
+				$transactionStarted = false;
 				self::maybeAutoConfirm($row, $ext);
 				return $ext;
 			}
 
-			$used = $DB->getAll("SELECT realmoney,ext FROM pre_order WHERE channel=:channel AND type=:type AND trade_no<>:trade_no AND status=0 AND realmoney IS NOT NULL AND addtime>=DATE_SUB(NOW(), INTERVAL ".$timeout." SECOND) FOR UPDATE", [
+			$channelRow = $DB->getRow("SELECT id FROM pre_channel WHERE id=:channel FOR UPDATE", [
+				':channel' => $row['channel'],
+			]);
+			if (!$channelRow) {
+				throw new Exception('支付通道不存在');
+			}
+
+			$now = time();
+			$used = $DB->getAll("SELECT realmoney,ext FROM pre_order WHERE channel=:channel AND type=:type AND trade_no<>:trade_no AND status=0 AND realmoney IS NOT NULL AND ext IS NOT NULL FOR UPDATE", [
 				':channel' => $row['channel'],
 				':type' => $row['type'],
 				':trade_no' => $trade_no,
@@ -390,14 +489,14 @@ class tgconfirm_plugin
 			if (is_array($used)) {
 				foreach ($used as $u) {
 					$uext = self::decodeExt($u['ext']);
-					if (!empty($uext['released'])) continue;
-					$usedYuan[] = $u['realmoney'];
+					if (!AmountMark::isReserved($uext, $now)) continue;
+					$usedYuan[] = $uext['amount'];
 				}
 			}
 
 			$base = $row['realmoney'] > 0 ? $row['realmoney'] : $row['money'];
 			$amount = AmountMark::pick($base, $usedYuan);
-			$expire = time() + $timeout;
+			$expire = $now + $timeout;
 			$ext = [
 				'amount' => $amount,
 				'base' => number_format((float)$base, 2, '.', ''),
@@ -405,13 +504,16 @@ class tgconfirm_plugin
 				'tg' => 0,
 			];
 
-			$DB->update('order', [
+			if ($DB->update('order', [
 				'realmoney' => $amount,
 				'ext' => serialize($ext),
-			], ['trade_no' => $trade_no]);
-			$DB->commit();
+			], ['trade_no' => $trade_no]) === false) {
+				throw new Exception('订单更新失败');
+			}
+			if (!$DB->commit()) throw new Exception('订单处理失败');
+			$transactionStarted = false;
 		} catch (Exception $e) {
-			$DB->rollBack();
+			if ($transactionStarted && $DB->inTransaction()) $DB->rollBack();
 			throw $e;
 		}
 
@@ -421,20 +523,55 @@ class tgconfirm_plugin
 
 	static private function maybeAutoConfirm(&$row, &$ext)
 	{
-		global $channel;
+		global $DB, $channel;
 		if ($row['status'] > 0) return false;
 		if (empty($ext['claimed'])) return false;
 		$mins = self::autoMinutes();
 		if ($mins <= 0) return false;
 		if (self::autoNeedProof() && empty($ext['proof'])) return false;
 		if (time() < intval($ext['claimed']) + $mins * 60) return false;
-		if (!empty($ext['expire']) && time() > intval($ext['expire'])) return false;
-		if (!empty($ext['released'])) return false;
+		if (self::isExpired($ext)) return false;
+		if (self::isClosed($ext)) return false;
 
-		processNotify($row, $row['trade_no']);
-		$row['status'] = 1;
-		$ext['auto'] = 1;
-		self::saveExt($row['trade_no'], $ext);
+		$trade_no = $row['trade_no'];
+		$transactionStarted = false;
+		try {
+			$transactionStarted = $DB->beginTransaction();
+			if (!$transactionStarted) {
+				return false;
+			}
+			$locked = $DB->getRow("SELECT A.*,B.name typename,B.showname typeshowname FROM pre_order A left join pre_type B on A.type=B.id WHERE A.trade_no=:trade_no FOR UPDATE", [':trade_no' => $trade_no]);
+			if (!$locked) {
+				if (!$DB->commit()) throw new Exception('订单处理失败');
+				$transactionStarted = false;
+				return false;
+			}
+			$row = $locked;
+			$ext = self::decodeExt($locked['ext']);
+			$now = time();
+			$eligible = (int)$locked['status'] === 0
+				&& !empty($ext['claimed'])
+				&& (!self::autoNeedProof() || !empty($ext['proof']))
+				&& $now >= intval($ext['claimed']) + $mins * 60
+				&& !self::isExpired($ext, $now)
+				&& !self::isClosed($ext);
+			if ($eligible) {
+				processNotify($row, $trade_no);
+				if ((int)$DB->getColumn("SELECT status FROM pre_order WHERE trade_no=:trade_no", [':trade_no' => $trade_no]) !== 1) {
+					throw new Exception('订单入账失败');
+				}
+				$ext['auto'] = 1;
+				self::saveExt($trade_no, $ext);
+			}
+			if (!$DB->commit()) throw new Exception('订单处理失败');
+			$transactionStarted = false;
+			if (!$eligible) return false;
+			$row['status'] = 1;
+		} catch (Exception $e) {
+			if ($transactionStarted && $DB->inTransaction()) $DB->rollBack();
+			return false;
+		}
+
 		try {
 			$text = self::orderText($row, $ext, '已自动确认入账');
 			if (!empty($ext['tg'])) {
@@ -449,12 +586,15 @@ class tgconfirm_plugin
 	static private function saveExt($trade_no, $ext)
 	{
 		global $DB;
-		$DB->update('order', ['ext' => serialize($ext)], ['trade_no' => $trade_no]);
+		if ($DB->update('order', ['ext' => serialize($ext)], ['trade_no' => $trade_no]) === false) {
+			throw new Exception('订单更新失败');
+		}
 	}
 
 	static private function releaseAmount($trade_no, &$ext)
 	{
 		$ext['released'] = 1;
+		$ext['closed'] = 1;
 		self::saveExt($trade_no, $ext);
 	}
 
@@ -524,7 +664,7 @@ class tgconfirm_plugin
 	static private function qrContent($typename)
 	{
 		global $channel, $siteurl;
-		if ($typename == 'alipay') {
+		if (self::isAlipay($typename)) {
 			if (!empty($channel['alipayqr'])) {
 				return $channel['alipayqr'];
 			}
@@ -536,8 +676,9 @@ class tgconfirm_plugin
 	static private function bindWebhook()
 	{
 		global $channel, $conf;
+		self::validateConfig();
 		$token = $channel['appkey'];
-		$secret = trim($channel['appsecret']);
+		$secret = self::webhookSecret();
 		$url = $conf['localurl'].'pay/webhook/'.$channel['id'].'/';
 		Telegram::setWebhook($token, $url, $secret);
 	}

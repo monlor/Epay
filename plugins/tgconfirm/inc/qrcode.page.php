@@ -1,6 +1,8 @@
 <?php
 if (!defined('IN_PLUGIN')) exit();
-$is_wx = $typename === 'wxpay';
+if (!isset($is_wx)) {
+	$is_wx = ($typename === 'wxpay' || $typename === 'wxpay_manual');
+}
 $title = $is_wx ? '微信扫码转账' : '支付宝扫码转账';
 $tip1 = $is_wx ? '请使用微信扫一扫转账' : '请使用支付宝扫一扫转账';
 $amount = $order['realmoney'];
@@ -105,6 +107,7 @@ body{
 .file-txt{font-size:13px;line-height:1.4}
 .file-txt span{display:block;color:var(--muted);font-size:12px}
 .preview{display:none;width:72px;height:72px;object-fit:cover;border-radius:10px;margin-left:auto}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .btn{
   appearance:none;border:0;border-radius:14px;background:var(--accent);color:#fff;
   font:inherit;font-size:16px;font-weight:700;padding:14px 16px;cursor:pointer;width:100%;
@@ -153,15 +156,16 @@ body{
 
     <div class="qr-wrap">
       <div class="qr-frame" id="qrcode"></div>
-      <div class="expired" id="qrExpiredOverlay">
+      <div class="expired" id="qrExpiredOverlay" role="status" aria-live="polite">
         <div>已超时</div>
         <div style="font-size:13px;font-weight:500">请返回重新发起支付</div>
       </div>
     </div>
-    <div class="timer">剩余时间<b id="remain">00:00:00</b></div>
+    <div class="timer" aria-live="polite">剩余时间<b id="remain">00:00:00</b></div>
     <div class="hint"><?php echo htmlspecialchars($tip1) ?></div>
 
     <div id="claimBox" class="claim">
+      <label class="sr-only" for="claimNote">转账说明</label>
       <textarea id="claimNote" maxlength="200" placeholder="选填：转账说明，如账号后四位"></textarea>
       <label class="file-btn">
         <input type="file" id="claimFile" accept="image/jpeg,image/png,image/webp,image/gif">
@@ -196,16 +200,24 @@ body{
 <script src="<?php echo $cdnpublic ?>layer/3.1.1/layer.js"></script>
 <script src="<?php echo $cdnpublic ?>jquery.qrcode/1.0/jquery.qrcode.min.js"></script>
 <script>
-var tradeNo = <?php echo json_encode($trade_no) ?>;
+var tradeNo = <?php echo json_encode($trade_no, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 var claimed = <?php echo $claimed ? 'true' : 'false' ?>;
-var code_url = <?php echo json_encode((string)$code_url) ?>;
+var code_url = <?php echo json_encode((string)$code_url, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 var code_is_img = <?php echo $code_is_img ? 'true' : 'false' ?>;
+var paymentType = <?php echo json_encode((string)$typename, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+var qrcode = document.getElementById('qrcode');
 if (!code_url) {
-  $('#qrcode').html('<div class="qr-empty">收款码未配置，请按上方金额转账</div>');
+  var empty = document.createElement('div');
+  empty.className = 'qr-empty';
+  empty.textContent = '收款码未配置，请按上方金额转账';
+  qrcode.appendChild(empty);
 } else if (code_is_img) {
-  $('#qrcode').html('<img src="'+code_url+'" alt="收款码">');
+  var image = document.createElement('img');
+  image.src = code_url;
+  image.alt = '收款码';
+  qrcode.appendChild(image);
 } else {
-  $('#qrcode').qrcode({text: code_url, width: 204, height: 204, foreground: "#111827", background: "#ffffff", typeNumber: -1});
+  $(qrcode).qrcode({text: code_url, width: 204, height: 204, foreground: "#111827", background: "#ffffff", typeNumber: -1});
 }
 function showWait() {
   claimed = true;
@@ -223,7 +235,7 @@ function loadmsg() {
     url: "/pay/status/" + tradeNo + "/",
     success: function (data) {
       if (data.code == 1) {
-        $.getJSON("/getshop.php", {type: "<?php echo $typename ?>", trade_no: tradeNo}, function (d) {
+        $.getJSON("/getshop.php", {type: paymentType, trade_no: tradeNo}, function (d) {
           paidJump(d && d.backurl);
         }).fail(function () { paidJump(); });
       } else if (data.code == 0) {
@@ -231,6 +243,13 @@ function loadmsg() {
         setTimeout(loadmsg, 2000);
       } else if (data.code == -2) {
         document.getElementById('qrExpiredOverlay').classList.add('show');
+        $('#claimBox').hide();
+      } else if (data.code == -4) {
+        var closedOverlay = document.getElementById('qrExpiredOverlay');
+        closedOverlay.firstElementChild.textContent = '订单已关闭';
+        closedOverlay.lastElementChild.textContent = '请返回重新发起支付';
+        closedOverlay.classList.add('show');
+        $('#claimBox').hide();
       } else {
         setTimeout(loadmsg, 2000);
       }
@@ -240,13 +259,25 @@ function loadmsg() {
 }
 $('#claimFile').on('change', function () {
   var f = this.files && this.files[0];
-  if (!f) { $('#claimPreview').hide(); $('#fileTxt').html('上传转账截图<span>选填，jpg / png，不超过 5MB</span>'); return; }
+  if (!f) {
+    $('#claimPreview').hide();
+    var emptyFile = document.getElementById('fileTxt');
+    emptyFile.textContent = '上传转账截图';
+    var emptyHint = document.createElement('span');
+    emptyHint.textContent = '选填，jpg / png，不超过 5MB';
+    emptyFile.appendChild(emptyHint);
+    return;
+  }
   if (f.size > 5 * 1024 * 1024) {
     layer.msg('图片不能超过 5MB');
     this.value = '';
     return;
   }
-  $('#fileTxt').html(f.name + '<span>已选择，可更换</span>');
+  var fileText = document.getElementById('fileTxt');
+  fileText.textContent = f.name;
+  var fileHint = document.createElement('span');
+  fileHint.textContent = '已选择，可更换';
+  fileText.appendChild(fileHint);
   $('#claimPreview').attr('src', URL.createObjectURL(f)).show();
 });
 $('#claimBtn').on('click', function () {
@@ -266,7 +297,7 @@ $('#claimBtn').on('click', function () {
     dataType: 'json',
     success: function (data) {
       if (data.code == 1) {
-        $.getJSON("/getshop.php", {type: "<?php echo $typename ?>", trade_no: tradeNo}, function (d) {
+        $.getJSON("/getshop.php", {type: paymentType, trade_no: tradeNo}, function (d) {
           paidJump(d && d.backurl);
         }).fail(function () { paidJump(); });
         return;
@@ -293,6 +324,7 @@ function startCountdown(duration) {
     if (timer <= 0) {
       el.textContent = '00:00:00';
       overlay.classList.add('show');
+      $('#claimBox').hide();
       clearInterval(window.countdownInterval);
       return;
     }
