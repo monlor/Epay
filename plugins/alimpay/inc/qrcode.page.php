@@ -223,9 +223,6 @@ window.onload = function() {
       $('#openBtn').on('click', function(){ $('#wxGuide').addClass('show'); });
     } else {
       $('#openBtn').attr('href', url_scheme);
-      if (navigator.userAgent.indexOf('EdgA/') == -1) {
-        setTimeout(function(){ window.location.href = url_scheme; }, 800);
-      }
     }
   }
   $('#wxGuide').on('click', function(){ $(this).removeClass('show'); });

@@ -14,6 +14,8 @@ $accent = $is_wx ? '#07C160' : '#1677FF';
 $accent_soft = $is_wx ? '#E8F8EF' : '#E8F3FF';
 $accent_shadow = $is_wx ? 'rgba(7,193,96,.28)' : 'rgba(22,119,255,.28)';
 $brand = $is_wx ? '微信支付' : '支付宝';
+if (!isset($open_url)) $open_url = '';
+if (!isset($open_label)) $open_label = $is_wx ? '打开微信扫码付款' : '打开支付宝继续付款';
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -89,6 +91,12 @@ body{
   font-variant-numeric:tabular-nums;color:var(--text);font-size:16px;margin-left:4px;
 }
 .hint{margin-top:10px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6}
+.wx-guide{
+  display:none;margin-top:12px;background:var(--accent-soft);border-radius:12px;
+  padding:12px 14px;color:var(--text);font-size:13px;line-height:1.7;font-weight:600;
+}
+.wx-guide.show{display:block}
+.wx-guide ol{margin:0;padding-left:20px}
 .claim{margin-top:18px;display:grid;gap:10px}
 .claim textarea,.file-btn{
   width:100%;border:1px solid var(--line);border-radius:14px;background:#f8fafc;
@@ -108,10 +116,16 @@ body{
 .file-txt span{display:block;color:var(--muted);font-size:12px}
 .preview{display:none;width:72px;height:72px;object-fit:cover;border-radius:10px;margin-left:auto}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.actions{margin-top:18px;display:none;grid-gap:10px}
+.actions.show{display:grid}
 .btn{
   appearance:none;border:0;border-radius:14px;background:var(--accent);color:#fff;
   font:inherit;font-size:16px;font-weight:700;padding:14px 16px;cursor:pointer;width:100%;
-  box-shadow:0 8px 20px var(--shadow);
+  box-shadow:0 8px 20px var(--shadow);text-align:center;text-decoration:none;
+}
+.btn-ghost{
+  background:#fff;color:var(--accent);box-shadow:none;
+  border:1px solid var(--accent);
 }
 .btn[disabled]{opacity:.55;cursor:default;box-shadow:none}
 .wait{
@@ -162,7 +176,22 @@ body{
       </div>
     </div>
     <div class="timer" aria-live="polite">剩余时间<b id="remain">00:00:00</b></div>
-    <div class="hint"><?php echo htmlspecialchars($tip1) ?></div>
+    <div class="hint" id="scanHint"><?php echo htmlspecialchars($tip1) ?></div>
+    <?php if ($is_wx) { ?>
+    <div class="wx-guide" id="wxGuide">
+      <ol>
+        <li>先保存上方二维码到相册</li>
+        <li>再点下方按钮打开微信，用扫一扫付款</li>
+      </ol>
+    </div>
+    <?php } ?>
+
+    <div class="actions" id="openApp">
+      <?php if ($is_wx) { ?>
+      <button type="button" class="btn btn-ghost" id="saveQrBtn">保存二维码</button>
+      <?php } ?>
+      <a class="btn" id="openBtn" href="javascript:void(0)"><?php echo htmlspecialchars($open_label) ?></a>
+    </div>
 
     <div id="claimBox" class="claim">
       <label class="sr-only" for="claimNote">转账说明</label>
@@ -205,6 +234,7 @@ var claimed = <?php echo $claimed ? 'true' : 'false' ?>;
 var code_url = <?php echo json_encode((string)$code_url, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 var code_is_img = <?php echo $code_is_img ? 'true' : 'false' ?>;
 var paymentType = <?php echo json_encode((string)$typename, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+var open_url = <?php echo json_encode((string)$open_url, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 var qrcode = document.getElementById('qrcode');
 if (!code_url) {
   var empty = document.createElement('div');
@@ -219,9 +249,30 @@ if (!code_url) {
 } else {
   $(qrcode).qrcode({text: code_url, width: 204, height: 204, foreground: "#111827", background: "#ffffff", typeNumber: -1});
 }
+function isMobile() {
+  return /iPhone|iPad|Android/i.test(navigator.userAgent);
+}
+function saveQr() {
+  var frame = document.getElementById('qrcode');
+  var canvas = frame.querySelector('canvas');
+  var img = frame.querySelector('img');
+  var url = '';
+  if (canvas) url = canvas.toDataURL('image/png');
+  else if (img) url = img.src;
+  else {
+    layer.msg('暂无二维码可保存');
+    return;
+  }
+  var wrap = $('<div style="padding:16px;text-align:center"></div>');
+  wrap.append($('<img alt="收款码" style="width:240px;height:240px">').attr('src', url));
+  wrap.append('<p style="margin-top:10px;color:#6b7280;font-size:13px">长按图片保存到相册</p>');
+  layer.open({type: 1, title: false, shadeClose: true, content: wrap, area: '280px'});
+}
 function showWait() {
   claimed = true;
   $('#claimBox').hide();
+  $('#openApp').hide();
+  $('#wxGuide').hide();
   $('#waitBox').addClass('show');
 }
 function paidJump(backurl) {
@@ -244,12 +295,16 @@ function loadmsg() {
       } else if (data.code == -2) {
         document.getElementById('qrExpiredOverlay').classList.add('show');
         $('#claimBox').hide();
+        $('#openApp').hide();
+        $('#wxGuide').hide();
       } else if (data.code == -4) {
         var closedOverlay = document.getElementById('qrExpiredOverlay');
         closedOverlay.firstElementChild.textContent = '订单已关闭';
         closedOverlay.lastElementChild.textContent = '请返回重新发起支付';
         closedOverlay.classList.add('show');
         $('#claimBox').hide();
+        $('#openApp').hide();
+        $('#wxGuide').hide();
       } else {
         setTimeout(loadmsg, 2000);
       }
@@ -328,6 +383,8 @@ function startCountdown(duration) {
       el.textContent = '00:00:00';
       overlay.classList.add('show');
       $('#claimBox').hide();
+      $('#openApp').hide();
+      $('#wxGuide').hide();
       clearInterval(window.countdownInterval);
       return;
     }
@@ -339,7 +396,17 @@ function startCountdown(duration) {
   window.countdownInterval = setInterval(tick, 1000);
 }
 window.onload = function () {
-  if (claimed) showWait();
+  if (claimed) {
+    showWait();
+  } else if (isMobile() && open_url) {
+    $('#openApp').addClass('show');
+    $('#openBtn').attr('href', open_url);
+    $('#saveQrBtn').on('click', saveQr);
+    if ($('#wxGuide').length) {
+      $('#scanHint').hide();
+      $('#wxGuide').addClass('show');
+    }
+  }
   setTimeout(loadmsg, 2000);
   startCountdown(<?php echo intval($paytime) ?>);
 };
