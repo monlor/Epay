@@ -1,7 +1,7 @@
 <?php
 /**
  * Unique pay-amount marker for concurrent same-amount transfer orders.
- * Integer yuan: start at +0.01. Already-decimal: keep first, then +0.01.
+ * First order keeps the original amount; later collisions add +0.01.
  */
 class AmountMark
 {
@@ -37,11 +37,8 @@ class AmountMark
 			$used[self::toCents($yuan)] = true;
 		}
 
-		$isInteger = ($baseCents % 100 === 0);
-		$start = $isInteger ? $baseCents + 1 : $baseCents;
-		$limit = $isInteger ? 99 : 100; // ponytail: integer skips .00, 99 slots
-		for ($i = 0; $i < $limit; $i++) {
-			$c = $start + $i;
+		for ($i = 0; $i < 100; $i++) {
+			$c = $baseCents + $i;
 			if (!isset($used[$c])) {
 				return self::fromCents($c);
 			}

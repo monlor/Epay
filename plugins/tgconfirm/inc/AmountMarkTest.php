@@ -20,13 +20,16 @@ $a = AmountMark::pick(11.11, ['11.11', '11.12']);
 check($a === '11.13', "third decimal +0.02, got $a");
 
 $a = AmountMark::pick('11.00', []);
-check($a === '11.01', "integer first is +0.01, got $a");
+check($a === '11.00', "integer first keeps original, got $a");
 
-$a = AmountMark::pick(11, ['11.01']);
-check($a === '11.02', "integer second +0.02, got $a");
+$a = AmountMark::pick(11, ['11.00']);
+check($a === '11.01', "integer second +0.01, got $a");
+
+$a = AmountMark::pick(11, ['11.00', '11.01']);
+check($a === '11.02', "integer third +0.02, got $a");
 
 $used = [];
-for ($i = 1; $i < 99; $i++) {
+for ($i = 0; $i < 99; $i++) {
 	$used[] = AmountMark::fromCents(1100 + $i);
 }
 $a = AmountMark::pick(11, $used);
