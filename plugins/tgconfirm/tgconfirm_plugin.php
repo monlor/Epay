@@ -52,7 +52,7 @@ class tgconfirm_plugin
 			'alipayqr' => [
 				'name' => '支付宝收款码',
 				'type' => 'input',
-				'note' => '图片 URL 或二维码内容，可留空',
+				'note' => '图片 URL 或二维码内容。以 https://qr.alipay.com 开头时，手机可点按钮直接打开该收款码',
 			],
 			'appurl' => [
 				'name' => '微信收款码',
@@ -61,7 +61,7 @@ class tgconfirm_plugin
 			],
 		],
 		'select' => null,
-		'note' => '<p>用户按页面金额转账后点「我已支付」才会给 Telegram 发确认按钮，可选手写说明和上传截图（只转发到 TG，不保存）。确认或自动入账后该金额立即释放。</p><p>微信和支付宝都不跳转付款页。手机页提示长按保存二维码，再打开对应 App 用扫一扫付款。</p><p>支付超时控制开页未申报的等待时间；点「我已支付」后改走确认超时。确认超时应大于自动确认分钟，且不超过 48 小时（系统会清理超过 48 小时的未支付订单）。</p><p>支持调用值：alipay / alipay_manual / wxpay / wxpay_manual。manual 与原方式页面相同，但是独立支付方式，可各绑一条通道，API 用 type 区分。</p><p>同一 Bot Token 的多条 tgconfirm 通道自动共用一个 Webhook（绑到 ID 最小的那条），按订单关联通道。微信/支付宝可共用一个机器人。Webhook 密钥建议填一样。</p><p>默认须上传截图才自动确认。Webhook：<a href="[siteurl]pay/webhook/[channel]/" target="_blank" rel="noopener noreferrer">[siteurl]pay/webhook/[channel]/</a>　绑定：<a href="[siteurl]pay/setwebhook/[channel]/" target="_blank" rel="noopener noreferrer">点击手动绑定</a>　监控：<a href="[siteurl]pay/autocron/[channel]/" target="_blank" rel="noopener noreferrer">[siteurl]pay/autocron/[channel]/</a></p>',
+		'note' => '<p>用户按页面金额转账后点「我已支付」才会给 Telegram 发确认按钮，可选手写说明和上传截图（只转发到 TG，不保存）。确认或自动入账后该金额立即释放。</p><p>微信不跳转付款页，手机提示长按保存二维码再打开微信扫一扫。支付宝收款码为 https://qr.alipay.com/... 时，手机可点按钮直接打开该收款码；其它情况同样是保存二维码再扫。</p><p>支付超时控制开页未申报的等待时间；点「我已支付」后改走确认超时。确认超时应大于自动确认分钟，且不超过 48 小时（系统会清理超过 48 小时的未支付订单）。</p><p>支持调用值：alipay / alipay_manual / wxpay / wxpay_manual。manual 与原方式页面相同，但是独立支付方式，可各绑一条通道，API 用 type 区分。</p><p>同一 Bot Token 的多条 tgconfirm 通道自动共用一个 Webhook（绑到 ID 最小的那条），按订单关联通道。微信/支付宝可共用一个机器人。Webhook 密钥建议填一样。</p><p>默认须上传截图才自动确认。Webhook：<a href="[siteurl]pay/webhook/[channel]/" target="_blank" rel="noopener noreferrer">[siteurl]pay/webhook/[channel]/</a>　绑定：<a href="[siteurl]pay/setwebhook/[channel]/" target="_blank" rel="noopener noreferrer">点击手动绑定</a>　监控：<a href="[siteurl]pay/autocron/[channel]/" target="_blank" rel="noopener noreferrer">[siteurl]pay/autocron/[channel]/</a></p>',
 		'bindwxmp' => false,
 		'bindwxa' => false,
 	];
@@ -185,7 +185,8 @@ class tgconfirm_plugin
 		$typename = $order['typename'];
 		$is_wx = self::isWxpay($typename);
 		$open_url = TgconfirmOpenApp::resolve($is_wx, $code_url);
-		$open_label = $is_wx ? '打开微信扫码付款' : '打开支付宝扫码付款';
+		$open_direct = !$is_wx && TgconfirmOpenApp::isAlipayQrLink($code_url);
+		$open_label = $is_wx ? '打开微信扫码付款' : ($open_direct ? '打开支付宝付款' : '打开支付宝扫码付款');
 
 		include PAY_ROOT.'inc/qrcode.page.php';
 		exit;

@@ -16,7 +16,8 @@ $accent_shadow = $is_wx ? 'rgba(7,193,96,.28)' : 'rgba(22,119,255,.28)';
 $brand = $is_wx ? '微信支付' : '支付宝';
 $scan_app = $is_wx ? '微信' : '支付宝';
 if (!isset($open_url)) $open_url = '';
-if (!isset($open_label)) $open_label = $is_wx ? '打开微信扫码付款' : '打开支付宝扫码付款';
+if (!isset($open_direct)) $open_direct = false;
+if (!isset($open_label)) $open_label = $is_wx ? '打开微信扫码付款' : ($open_direct ? '打开支付宝付款' : '打开支付宝扫码付款');
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -176,8 +177,13 @@ body{
     <div class="hint" id="scanHint"><?php echo htmlspecialchars($tip1) ?></div>
     <div class="scan-guide" id="scanGuide">
       <ol>
+        <?php if (!empty($open_direct)) { ?>
+        <li>点下方按钮打开支付宝付款</li>
+        <li>请按页面金额原样转账</li>
+        <?php } else { ?>
         <li>长按上方二维码保存到相册</li>
         <li>再点下方按钮打开<?php echo htmlspecialchars($scan_app) ?>，用扫一扫付款</li>
+        <?php } ?>
       </ol>
     </div>
 

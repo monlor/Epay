@@ -20,8 +20,15 @@ $scheme = rawurldecode(substr($uri, strlen('https://render.alipay.com/p/s/i?sche
 check(strpos($scheme, 'alipays://platformapi/startapp?') === 0, 'inner alipays scheme');
 check(strpos($scheme, 'actionType=toAccount') !== false, 'toAccount');
 
-$open = TgconfirmOpenApp::resolve(false, 'https://qr.alipay.com/fkx123');
-check($open === 'alipays://', 'alipay opens app only');
+check(TgconfirmOpenApp::isAlipayQrLink('https://qr.alipay.com/fkxabc'), 'https qr.alipay.com prefix');
+check(TgconfirmOpenApp::isAlipayQrLink('https://qr.alipay.com/c1x999?t=1'), 'qr link with query');
+check(TgconfirmOpenApp::isAlipayQrLink('https://qr.alipay.com/'), 'qr host with slash');
+check(TgconfirmOpenApp::isAlipayQrLink('HTTP://QR.ALIPAY.COM/abc'), 'http and case');
+check(!TgconfirmOpenApp::isAlipayQrLink('https://qr.alipay.com.evil.example/x'), 'lookalike host rejected');
+check(!TgconfirmOpenApp::isAlipayQrLink('https://img.example.com/qr.png'), 'image is not qr link');
+
+$open = TgconfirmOpenApp::resolve(false, 'https://qr.alipay.com/c1xconfigured');
+check($open === 'https://qr.alipay.com/c1xconfigured', 'button uses configured qr.alipay.com url');
 
 $open = TgconfirmOpenApp::resolve(false, $uri);
 check($open === 'alipays://', 'alipay transfer qr still opens app only');

@@ -1,6 +1,7 @@
 <?php
 /**
- * Mobile "open app" links. Only launches WeChat/Alipay; no in-app pay page.
+ * Mobile "open app" links.
+ * Alipay qr.alipay.com collection URLs open that URL; other Alipay codes only launch the app.
  * UID transfer URI is QR content only (save then scan), not a jump target.
  */
 class TgconfirmOpenApp
@@ -8,6 +9,15 @@ class TgconfirmOpenApp
 	public static function isAlipayUid($uid)
 	{
 		return (bool)preg_match('/^2088\d{12}$/', trim((string)$uid));
+	}
+
+	public static function isAlipayQrLink($url)
+	{
+		$url = trim((string)$url);
+		if ($url === '') return false;
+		$scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));
+		$host = strtolower((string)parse_url($url, PHP_URL_HOST));
+		return ($scheme === 'https' || $scheme === 'http') && $host === 'qr.alipay.com';
 	}
 
 	public static function alipayTransferUri($userId, $amount, $memo)
@@ -26,7 +36,10 @@ class TgconfirmOpenApp
 
 	public static function resolve($is_wx, $code_url)
 	{
-		if (trim((string)$code_url) === '') return '';
-		return $is_wx ? 'weixin://' : 'alipays://';
+		$code_url = trim((string)$code_url);
+		if ($code_url === '') return '';
+		if ($is_wx) return 'weixin://';
+		if (self::isAlipayQrLink($code_url)) return $code_url;
+		return 'alipays://';
 	}
 }
