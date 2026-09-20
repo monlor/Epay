@@ -9,6 +9,17 @@ assert(AlimpayService::moneyToCents('1.2') === 120);
 assert(AlimpayService::moneyToCents('1.20') === 120);
 assert(AlimpayService::centsToMoney(101) === '1.01');
 
+assert(AlimpayService::nextPayable('11.00', []) === '11.00', 'first keeps original');
+assert(AlimpayService::nextPayable('11.00', ['11.00']) === '11.01', 'second +0.01');
+assert(AlimpayService::nextPayable('11.00', ['11.00', '11.02']) === '11.01', 'fills first gap');
+$occupied = [];
+for($i = 0; $i < 100; $i++){
+	$occupied[] = AlimpayService::centsToMoney(1100 + $i);
+}
+assert(AlimpayService::nextPayable('11.00', $occupied) === '12.00', 'rolls past 11.99 to 12.00');
+$occupied[] = '12.00';
+assert(AlimpayService::nextPayable('11.00', $occupied) === '12.01', 'keeps +0.01 after 12.00');
+
 $order = [
 	'trade_no' => '2026010100000111111',
 	'realmoney' => '10.00',

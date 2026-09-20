@@ -5,7 +5,6 @@ class AlimpayService
 	const CHECKOUT_SECONDS = 300;
 	const MONITOR_SECONDS = 600;
 	const BILL_LAG_SECONDS = 60;
-	const MAX_OFFSET_CENTS = 99;
 
 	public static function occupySeconds(){
 		return self::MONITOR_SECONDS + self::BILL_LAG_SECONDS;
@@ -100,10 +99,20 @@ class AlimpayService
 		];
 	}
 
-	public static function allocatePayable($channelId, $subid, $requestedMoney, $maxOffset = self::MAX_OFFSET_CENTS){
+	public static function nextPayable($requestedMoney, array $occupiedMoney){
+		$occupied = [];
+		foreach($occupiedMoney as $money){
+			$occupied[self::moneyToCents($money)] = true;
+		}
+		$candidate = self::moneyToCents($requestedMoney);
+		while(!empty($occupied[$candidate])){
+			$candidate++;
+		}
+		return self::centsToMoney($candidate);
+	}
+
+	public static function allocatePayable($channelId, $subid, $requestedMoney){
 		global $DB;
-		$requested = self::moneyToCents($requestedMoney);
-		$maxOffset = max(1, min(self::MAX_OFFSET_CENTS, intval($maxOffset)));
 		$occupy = self::occupySeconds();
 		$sql = "SELECT ext FROM pre_order WHERE channel=:channel AND status=0 AND addtime>=DATE_SUB(NOW(), INTERVAL {$occupy} SECOND)";
 		$bind = [':channel'=>intval($channelId)];
@@ -115,15 +124,9 @@ class AlimpayService
 		$occupied = [];
 		foreach($rows as $row){
 			$ext = self::parseExt($row['ext'] ?? null);
-			if($ext) $occupied[self::moneyToCents($ext['payable'])] = true;
+			if($ext) $occupied[] = $ext['payable'];
 		}
-		for($offset = 1; $offset <= $maxOffset; $offset++){
-			$candidate = $requested + $offset;
-			if(empty($occupied[$candidate])){
-				return self::centsToMoney($candidate);
-			}
-		}
-		throw new Exception('当前相同金额的待支付订单过多，请稍后再试');
+		return self::nextPayable($requestedMoney, $occupied);
 	}
 
 	public static function buildExt($channel, $order){

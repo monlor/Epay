@@ -47,7 +47,7 @@ class tgconfirm_plugin
 			'appid' => [
 				'name' => '支付宝收款 UID',
 				'type' => 'input',
-				'note' => '2088 开头 16 位。填了后手机可点按钮打开支付宝并预填金额。留空则只显示下方收款码',
+				'note' => '2088 开头 16 位。未填收款码时用来生成二维码。留空则只显示下方收款码',
 			],
 			'alipayqr' => [
 				'name' => '支付宝收款码',
@@ -57,11 +57,11 @@ class tgconfirm_plugin
 			'appurl' => [
 				'name' => '微信收款码',
 				'type' => 'input',
-				'note' => '图片 URL 或二维码内容。手机页会提示先保存二维码，再打开微信扫码，无法预填金额',
+				'note' => '图片 URL 或二维码内容。手机页会提示先保存二维码，再打开微信扫码',
 			],
 		],
 		'select' => null,
-		'note' => '<p>用户按页面金额转账后点「我已支付」才会给 Telegram 发确认按钮，可选手写说明和上传截图（只转发到 TG，不保存）。确认或自动入账后该金额立即释放。</p><p>填了支付宝收款 UID 后，手机浏览器可点按钮打开支付宝并预填金额和备注（订单号）。微信无法跳转到付款页或预填金额，手机页会提示先保存二维码，再打开微信扫码付款。</p><p>支付超时控制开页未申报的等待时间；点「我已支付」后改走确认超时。确认超时应大于自动确认分钟，且不超过 48 小时（系统会清理超过 48 小时的未支付订单）。</p><p>支持调用值：alipay / alipay_manual / wxpay / wxpay_manual。manual 与原方式页面相同，但是独立支付方式，可各绑一条通道，API 用 type 区分。</p><p>同一 Bot Token 的多条 tgconfirm 通道自动共用一个 Webhook（绑到 ID 最小的那条），按订单关联通道。微信/支付宝可共用一个机器人。Webhook 密钥建议填一样。</p><p>默认须上传截图才自动确认。Webhook：<a href="[siteurl]pay/webhook/[channel]/" target="_blank" rel="noopener noreferrer">[siteurl]pay/webhook/[channel]/</a>　绑定：<a href="[siteurl]pay/setwebhook/[channel]/" target="_blank" rel="noopener noreferrer">点击手动绑定</a>　监控：<a href="[siteurl]pay/autocron/[channel]/" target="_blank" rel="noopener noreferrer">[siteurl]pay/autocron/[channel]/</a></p>',
+		'note' => '<p>用户按页面金额转账后点「我已支付」才会给 Telegram 发确认按钮，可选手写说明和上传截图（只转发到 TG，不保存）。确认或自动入账后该金额立即释放。</p><p>微信和支付宝都不跳转付款页。手机页提示长按保存二维码，再打开对应 App 用扫一扫付款。</p><p>支付超时控制开页未申报的等待时间；点「我已支付」后改走确认超时。确认超时应大于自动确认分钟，且不超过 48 小时（系统会清理超过 48 小时的未支付订单）。</p><p>支持调用值：alipay / alipay_manual / wxpay / wxpay_manual。manual 与原方式页面相同，但是独立支付方式，可各绑一条通道，API 用 type 区分。</p><p>同一 Bot Token 的多条 tgconfirm 通道自动共用一个 Webhook（绑到 ID 最小的那条），按订单关联通道。微信/支付宝可共用一个机器人。Webhook 密钥建议填一样。</p><p>默认须上传截图才自动确认。Webhook：<a href="[siteurl]pay/webhook/[channel]/" target="_blank" rel="noopener noreferrer">[siteurl]pay/webhook/[channel]/</a>　绑定：<a href="[siteurl]pay/setwebhook/[channel]/" target="_blank" rel="noopener noreferrer">点击手动绑定</a>　监控：<a href="[siteurl]pay/autocron/[channel]/" target="_blank" rel="noopener noreferrer">[siteurl]pay/autocron/[channel]/</a></p>',
 		'bindwxmp' => false,
 		'bindwxa' => false,
 	];
@@ -159,10 +159,6 @@ class tgconfirm_plugin
 
 	static public function submit()
 	{
-		global $order;
-		if (self::isAlipay($order['typename']) && function_exists('checkalipay') && checkalipay()) {
-			return ['type' => 'jump', 'url' => '/pay/pay/'.TRADE_NO.'/'];
-		}
 		return ['type' => 'jump', 'url' => '/pay/qrcode/'.TRADE_NO.'/'];
 	}
 
@@ -173,7 +169,7 @@ class tgconfirm_plugin
 
 	static public function qrcode()
 	{
-		global $order, $channel, $cdnpublic, $siteurl;
+		global $order, $cdnpublic;
 
 		self::loadLib();
 		try {
@@ -188,8 +184,8 @@ class tgconfirm_plugin
 		$code_url = self::qrContent($order['typename']);
 		$typename = $order['typename'];
 		$is_wx = self::isWxpay($typename);
-		$open_url = TgconfirmOpenApp::resolve($is_wx, $channel['appid'] ?? '', $code_url, $pay['amount'], $order['trade_no']);
-		$open_label = $is_wx ? '打开微信扫码付款' : '打开支付宝继续付款';
+		$open_url = TgconfirmOpenApp::resolve($is_wx, $code_url);
+		$open_label = $is_wx ? '打开微信扫码付款' : '打开支付宝扫码付款';
 
 		include PAY_ROOT.'inc/qrcode.page.php';
 		exit;
@@ -197,25 +193,7 @@ class tgconfirm_plugin
 
 	static public function pay()
 	{
-		global $order, $channel;
-
-		self::loadLib();
-		try {
-			$pay = self::prepare();
-		} catch (Exception $e) {
-			return ['type' => 'error', 'msg' => $e->getMessage()];
-		}
-		$order['realmoney'] = $pay['amount'];
-
-		if (!self::isAlipay($order['typename']) || empty($channel['appid'])) {
-			return ['type' => 'jump', 'url' => '/pay/qrcode/'.TRADE_NO.'/'];
-		}
-		if (!function_exists('checkalipay') || !checkalipay()) {
-			return ['type' => 'jump', 'url' => '/pay/qrcode/'.TRADE_NO.'/'];
-		}
-
-		include PAY_ROOT.'inc/pay.page.php';
-		exit;
+		return ['type' => 'jump', 'url' => '/pay/qrcode/'.TRADE_NO.'/'];
 	}
 
 	static public function claimed()
@@ -713,7 +691,7 @@ class tgconfirm_plugin
 
 	static private function qrContent($typename)
 	{
-		global $channel, $siteurl, $order;
+		global $channel, $order;
 		if (self::isAlipay($typename)) {
 			if (!empty($channel['alipayqr'])) {
 				return $channel['alipayqr'];
@@ -721,7 +699,7 @@ class tgconfirm_plugin
 			if (class_exists('TgconfirmOpenApp') && TgconfirmOpenApp::isAlipayUid($channel['appid'] ?? '')) {
 				return TgconfirmOpenApp::alipayTransferUri($channel['appid'], $order['realmoney'], $order['trade_no']);
 			}
-			return $siteurl.'pay/pay/'.TRADE_NO.'/';
+			return '';
 		}
 		return isset($channel['appurl']) ? $channel['appurl'] : '';
 	}

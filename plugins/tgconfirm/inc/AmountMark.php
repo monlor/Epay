@@ -1,7 +1,7 @@
 <?php
 /**
  * Unique pay-amount marker for concurrent same-amount transfer orders.
- * First order keeps the original amount; later collisions add +0.01.
+ * First order keeps the original amount; later collisions keep adding +0.01.
  */
 class AmountMark
 {
@@ -31,18 +31,14 @@ class AmountMark
 	 */
 	public static function pick($baseYuan, array $usedYuan)
 	{
-		$baseCents = self::toCents($baseYuan);
+		$c = self::toCents($baseYuan);
 		$used = [];
 		foreach ($usedYuan as $yuan) {
 			$used[self::toCents($yuan)] = true;
 		}
-
-		for ($i = 0; $i < 100; $i++) {
-			$c = $baseCents + $i;
-			if (!isset($used[$c])) {
-				return self::fromCents($c);
-			}
+		while (isset($used[$c])) {
+			$c++;
 		}
-		throw new Exception('当前金额档位已满，请稍后再下单');
+		return self::fromCents($c);
 	}
 }

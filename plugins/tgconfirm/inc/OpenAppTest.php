@@ -19,32 +19,29 @@ check(strpos($uri, 'https://render.alipay.com/p/s/i?scheme=') === 0, 'https wrap
 $scheme = rawurldecode(substr($uri, strlen('https://render.alipay.com/p/s/i?scheme=')));
 check(strpos($scheme, 'alipays://platformapi/startapp?') === 0, 'inner alipays scheme');
 check(strpos($scheme, 'actionType=toAccount') !== false, 'toAccount');
-check(strpos($scheme, 'userId=2088000000000000') !== false, 'userId');
-check(strpos($scheme, 'amount=11.12') !== false, 'amount');
-check(strpos($scheme, 'memo=2026010100000111111') !== false, 'memo');
 
-$open = TgconfirmOpenApp::resolve(false, '2088000000000000', 'https://img.example.com/qr.png', '11.12', 'T1');
-check(strpos($open, 'render.alipay.com') !== false, 'uid beats image qr');
+$open = TgconfirmOpenApp::resolve(false, 'https://qr.alipay.com/fkx123');
+check($open === 'alipays://', 'alipay opens app only');
 
-$open = TgconfirmOpenApp::resolve(false, '', 'https://qr.alipay.com/fkx123', '11.12', 'T1');
-check(strpos($open, 'alipays://platformapi/startapp?appId=20000067&url=') === 0, 'wrap qr.alipay.com');
+$open = TgconfirmOpenApp::resolve(false, $uri);
+check($open === 'alipays://', 'alipay transfer qr still opens app only');
 
-$open = TgconfirmOpenApp::resolve(false, '', 'https://img.example.com/qr.png', '11.12', 'T1');
-check($open === '', 'image alipay qr has no open url');
+$open = TgconfirmOpenApp::resolve(false, 'https://img.example.com/qr.png');
+check($open === 'alipays://', 'alipay image still opens app');
 
-$open = TgconfirmOpenApp::resolve(false, '', 'https://pay.example.com/pay/pay/2026010100000111111/', '11.12', 'T1');
-check($open === '', 'internal pay page is not wrapped');
+$open = TgconfirmOpenApp::resolve(false, '');
+check($open === '', 'empty alipay qr has no open url');
 
-$open = TgconfirmOpenApp::resolve(true, '', 'wxp://f2f0abcdef', '11.12', 'T1');
+$open = TgconfirmOpenApp::resolve(true, 'wxp://f2f0abcdef');
 check($open === 'weixin://', 'wechat opens app only');
 
-$open = TgconfirmOpenApp::resolve(true, '', 'https://img.example.com/wx.png', '11.12', 'T1');
+$open = TgconfirmOpenApp::resolve(true, 'https://img.example.com/wx.png');
 check($open === 'weixin://', 'wechat image still opens app');
 
-$open = TgconfirmOpenApp::resolve(true, '', '', '11.12', 'T1');
+$open = TgconfirmOpenApp::resolve(true, '');
 check($open === '', 'empty wechat qr has no open url');
 
-$open = TgconfirmOpenApp::resolve(true, '', 'weixin://dl/business/?t=1', '11.12', 'T1');
+$open = TgconfirmOpenApp::resolve(true, 'weixin://dl/business/?t=1');
 check($open === 'weixin://', 'wechat scheme still opens app');
 
 if ($fail) {
