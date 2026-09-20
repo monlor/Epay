@@ -40,7 +40,7 @@ class alipaycode_plugin
                 'options' => [0 => '普通转账', 1 => '转账确认单'],
             ],
 		],
-		'note' => '<p>可不签约支付产品，支付宝开放平台应用需要已上线，不能开启余额宝自动转入。如果是第三方应用类型，还需要填写商户授权token。</p><p>需添加守护进程，运行目录：<u>[basedir]plugins/alipaycode/</u> 启动命令：<u>php server.php [channel]</u> </p>', //支付密钥填写说明
+		'note' => '<p>可不签约支付产品，支付宝开放平台应用需要已上线，不能开启余额宝自动转入。如果是第三方应用类型，还需要填写商户授权token。</p><p>需添加守护进程统一扫账，运行目录：<u>[basedir]plugins/alipaycode/</u> 启动命令：<u>php server.php</u>。默认扫描全部已启用通道（含刚关闭但仍有 8 分钟内未支付订单的通道）。也可在命令后加通道 ID，或设置环境变量 <code>ALIPAYCODE_CHANNEL</code> 只扫一条。</p>',
 		'bindwxmp' => false, //是否支持绑定微信公众号
 		'bindwxa' => false, //是否支持绑定微信小程序
 	];
