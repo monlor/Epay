@@ -61,7 +61,7 @@ class tgconfirm_plugin
 			],
 		],
 		'select' => null,
-		'note' => '<p>用户按页面金额转账后点「我已支付」才会给 Telegram 发确认按钮，可选手写说明和上传截图（只转发到 TG，不保存）。确认或自动入账后该金额立即释放。</p><p>支付超时控制开页未申报的等待时间；点「我已支付」后改走确认超时。确认超时应大于自动确认分钟，且不超过 48 小时（系统会清理超过 48 小时的未支付订单）。</p><p>支持调用值：alipay / alipay_manual / wxpay / wxpay_manual。manual 与原方式页面相同，但是独立支付方式，可各绑一条通道，API 用 type 区分。</p><p>默认须上传截图才自动确认。Webhook：<u>[siteurl]pay/webhook/[channel]/</u>　绑定：<u>[siteurl]pay/setwebhook/[channel]/</u>　监控：<u>[siteurl]pay/autocron/[channel]/</u></p>',
+		'note' => '<p>用户按页面金额转账后点「我已支付」才会给 Telegram 发确认按钮，可选手写说明和上传截图（只转发到 TG，不保存）。确认或自动入账后该金额立即释放。</p><p>支付超时控制开页未申报的等待时间；点「我已支付」后改走确认超时。确认超时应大于自动确认分钟，且不超过 48 小时（系统会清理超过 48 小时的未支付订单）。</p><p>支持调用值：alipay / alipay_manual / wxpay / wxpay_manual。manual 与原方式页面相同，但是独立支付方式，可各绑一条通道，API 用 type 区分。</p><p>同一 Bot Token 的多条 tgconfirm 通道自动共用一个 Webhook（绑到 ID 最小的那条），按订单关联通道。微信/支付宝可共用一个机器人。Webhook 密钥建议填一样。</p><p>默认须上传截图才自动确认。Webhook：<a href="[siteurl]pay/webhook/[channel]/" target="_blank" rel="noopener noreferrer">[siteurl]pay/webhook/[channel]/</a>　绑定：<a href="[siteurl]pay/setwebhook/[channel]/" target="_blank" rel="noopener noreferrer">点击手动绑定</a>　监控：<a href="[siteurl]pay/autocron/[channel]/" target="_blank" rel="noopener noreferrer">[siteurl]pay/autocron/[channel]/</a></p>',
 		'bindwxmp' => false,
 		'bindwxa' => false,
 	];
@@ -127,6 +127,23 @@ class tgconfirm_plugin
 	{
 		require_once PAY_ROOT.'inc/AmountMark.php';
 		require_once PAY_ROOT.'inc/Telegram.php';
+		require_once PAY_ROOT.'inc/WebhookShare.php';
+	}
+
+	static private function siblingChannels($token = null)
+	{
+		global $DB, $channel;
+		if ($token === null) $token = (string)($channel['appkey'] ?? '');
+		$rows = $DB->getAll("SELECT id,config FROM pre_channel WHERE plugin='tgconfirm'");
+		$sib = TgconfirmWebhook::siblings(is_array($rows) ? $rows : [], $token);
+		if ($sib) return $sib;
+		if ($token === '' || empty($channel['id'])) return [];
+		return [[
+			'id' => (int)$channel['id'],
+			'appkey' => $token,
+			'appmchid' => (string)($channel['appmchid'] ?? ''),
+			'appsecret' => self::webhookSecret(),
+		]];
 	}
 
 	static private function isAlipay($typename)
@@ -345,33 +362,40 @@ class tgconfirm_plugin
 		global $channel, $DB;
 
 		self::loadLib();
+		$token = isset($channel['appkey']) ? $channel['appkey'] : '';
+
 		try {
 			self::validateConfig();
 		} catch (Exception $e) {
 			return ['type' => 'html', 'data' => 'forbidden'];
 		}
-		$secret = self::webhookSecret();
-		$header = isset($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN']) ? (string)$_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] : '';
-		if ($secret === '' || $header === '' || !hash_equals($secret, $header)) {
+		$siblings = self::siblingChannels();
+		$header = Telegram::secretHeader();
+		if (!TgconfirmWebhook::secretMatches($siblings, $header)) {
 			return ['type' => 'html', 'data' => 'forbidden'];
 		}
 
-		$update = json_decode(file_get_contents('php://input'), true);
-		if (!is_array($update) || empty($update['callback_query'])) {
+		$update = json_decode((string)file_get_contents('php://input'), true);
+		$cq = (is_array($update) && !empty($update['callback_query'])) ? $update['callback_query'] : null;
+		$cb_id = ($cq && isset($cq['id'])) ? (string)$cq['id'] : '';
+		if (!$cq) {
 			return ['type' => 'html', 'data' => 'ok'];
 		}
 
-		$cq = $update['callback_query'];
-		$cb_id = isset($cq['id']) ? (string)$cq['id'] : '';
 		$data = isset($cq['data']) ? $cq['data'] : '';
-		$chat_id = isset($cq['message']['chat']['id']) ? (string)$cq['message']['chat']['id'] : '';
-		$message_id = isset($cq['message']['message_id']) ? $cq['message']['message_id'] : 0;
-		$token = isset($channel['appkey']) ? $channel['appkey'] : '';
+		$msg = [];
+		if (!empty($cq['message']) && is_array($cq['message'])) {
+			$msg = $cq['message'];
+		} elseif (!empty($cq['maybe_inaccessible_message']) && is_array($cq['maybe_inaccessible_message'])) {
+			$msg = $cq['maybe_inaccessible_message'];
+		}
+		$chat_id = isset($msg['chat']['id']) ? (string)$msg['chat']['id'] : '';
+		$message_id = isset($msg['message_id']) ? $msg['message_id'] : 0;
 		if ($cb_id === '') {
 			return ['type' => 'html', 'data' => 'ok'];
 		}
 
-		if ((string)$channel['appmchid'] !== $chat_id) {
+		if (!TgconfirmWebhook::chatAllowed($siblings, $chat_id)) {
 			try {
 				Telegram::answer($token, $cb_id, '未授权的对话', true);
 			} catch (Exception $e) {
@@ -410,9 +434,16 @@ class tgconfirm_plugin
 			$row = $DB->getRow("SELECT A.*,B.name typename,B.showname typeshowname FROM pre_order A left join pre_type B on A.type=B.id WHERE A.trade_no=:trade_no FOR UPDATE", [':trade_no' => $trade_no]);
 			if (!$row) {
 				$reply = ['toast' => '订单不存在', 'alert' => true, 'text' => '订单 '.$trade_no.' 不存在'];
-			} elseif ((int)$row['channel'] !== (int)$channel['id']) {
-				$reply = ['toast' => '订单通道不匹配', 'alert' => true, 'text' => '订单不属于当前支付通道'];
+			} elseif (!TgconfirmWebhook::contains($siblings, $row['channel'])) {
+				$reply = ['toast' => '订单通道不匹配', 'alert' => true, 'text' => '订单不属于当前机器人'];
 			} else {
+				if ((int)$row['channel'] !== (int)$channel['id']) {
+					$orderChannel = \lib\Channel::get($row['channel']);
+					if ($orderChannel) {
+						$channel = $orderChannel;
+						$channel['apptype'] = explode(',', $channel['apptype']);
+					}
+				}
 				$ext = self::decodeExt($row['ext']);
 				if (!isset($ext['tg']) || (string)$ext['tg'] !== (string)$message_id) {
 					$reply = ['toast' => '按钮已失效', 'alert' => true, 'text' => '该确认按钮已失效'];
@@ -694,8 +725,10 @@ class tgconfirm_plugin
 		global $channel, $conf;
 		self::validateConfig();
 		$token = $channel['appkey'];
-		$secret = self::webhookSecret();
-		$url = $conf['localurl'].'pay/webhook/'.$channel['id'].'/';
+		$siblings = self::siblingChannels($token);
+		$ownerId = TgconfirmWebhook::ownerId($siblings, $channel['id']);
+		$secret = TgconfirmWebhook::ownerSecret($siblings, self::webhookSecret());
+		$url = $conf['localurl'].'pay/webhook/'.$ownerId.'/';
 		Telegram::setWebhook($token, $url, $secret);
 	}
 
@@ -721,12 +754,18 @@ class tgconfirm_plugin
 			."超时: ".$expire;
 	}
 
-	static private function tgReply($token, $cb_id, $chat_id, $message_id, $toast, $alert, $text)
+	static private function answerQuiet($token, $cb_id, $text, $alert = true)
 	{
+		if ($token === '' || $cb_id === '') return;
 		try {
-			Telegram::answer($token, $cb_id, $toast, $alert);
+			Telegram::answer($token, $cb_id, $text, $alert);
 		} catch (Exception $e) {
 		}
+	}
+
+	static private function tgReply($token, $cb_id, $chat_id, $message_id, $toast, $alert, $text)
+	{
+		self::answerQuiet($token, $cb_id, $toast, $alert);
 		if ($message_id) {
 			try {
 				Telegram::edit($token, $chat_id, $message_id, $text);

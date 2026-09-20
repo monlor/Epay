@@ -127,6 +127,27 @@ class Telegram
 		return $result;
 	}
 
+	static public function secretHeader($server = null, $headers = null)
+	{
+		$server = is_array($server) ? $server : $_SERVER;
+		foreach (['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN', 'REDIRECT_HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] as $k) {
+			if (isset($server[$k]) && $server[$k] !== '') {
+				return trim((string)$server[$k]);
+			}
+		}
+		if ($headers === null && function_exists('getallheaders')) {
+			$headers = getallheaders();
+		}
+		if (is_array($headers)) {
+			foreach ($headers as $name => $value) {
+				if (strtolower((string)$name) === 'x-telegram-bot-api-secret-token') {
+					return trim((string)$value);
+				}
+			}
+		}
+		return '';
+	}
+
 	static public function answer($token, $callback_id, $text, $alert = false)
 	{
 		self::api($token, 'answerCallbackQuery', [
