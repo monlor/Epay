@@ -24,10 +24,15 @@ class tgconfirm_plugin
 				'type' => 'input',
 				'note' => '必填随机字符串，Telegram secret_token，建议 16 位以上',
 			],
-			'timeout' => [
-				'name' => '订单超时秒数',
+			'paytimeout' => [
+				'name' => '支付超时秒数',
 				'type' => 'input',
-				'note' => '默认 86400（1天）。超时后不可确认。未支付订单在此时间内占用唯一金额，确认入账后立即释放',
+				'note' => '打开支付页后未点「我已支付」则超时。默认 600（10分钟）。超时后金额释放，需重新下单',
+			],
+			'timeout' => [
+				'name' => '确认超时秒数',
+				'type' => 'input',
+				'note' => '用户点「我已支付」后，超时不可确认。默认 86400（1天），最大 172800（48小时）。超过上限按 48 小时计。此时间内继续占用唯一金额',
 			],
 			'automin' => [
 				'name' => '自动确认分钟',
@@ -56,16 +61,25 @@ class tgconfirm_plugin
 			],
 		],
 		'select' => null,
-		'note' => '<p>用户按页面金额转账后点「我已支付」才会给 Telegram 发确认按钮，可选手写说明和上传截图（只转发到 TG，不保存）。确认或自动入账后该金额立即释放。</p><p>支持调用值：alipay / alipay_manual / wxpay / wxpay_manual。manual 与原方式页面相同，但是独立支付方式，可各绑一条通道，API 用 type 区分。</p><p>默认须上传截图才自动确认。Webhook：<u>[siteurl]pay/webhook/[channel]/</u>　绑定：<u>[siteurl]pay/setwebhook/[channel]/</u>　监控：<u>[siteurl]pay/autocron/[channel]/</u></p>',
+		'note' => '<p>用户按页面金额转账后点「我已支付」才会给 Telegram 发确认按钮，可选手写说明和上传截图（只转发到 TG，不保存）。确认或自动入账后该金额立即释放。</p><p>支付超时控制开页未申报的等待时间；点「我已支付」后改走确认超时。确认超时应大于自动确认分钟，且不超过 48 小时（系统会清理超过 48 小时的未支付订单）。</p><p>支持调用值：alipay / alipay_manual / wxpay / wxpay_manual。manual 与原方式页面相同，但是独立支付方式，可各绑一条通道，API 用 type 区分。</p><p>默认须上传截图才自动确认。Webhook：<u>[siteurl]pay/webhook/[channel]/</u>　绑定：<u>[siteurl]pay/setwebhook/[channel]/</u>　监控：<u>[siteurl]pay/autocron/[channel]/</u></p>',
 		'bindwxmp' => false,
 		'bindwxa' => false,
 	];
 
-	static private function timeout()
+	static private function payTimeout()
 	{
 		global $channel;
-		$t = intval($channel['timeout']);
-		return $t > 0 ? $t : 86400;
+		$t = intval($channel['paytimeout'] ?? 0);
+		return $t > 0 ? $t : 600;
+	}
+
+	static private function confirmTimeout()
+	{
+		global $channel;
+		$t = intval($channel['timeout'] ?? 0);
+		if ($t <= 0) $t = 86400;
+		if ($t > 172800) $t = 172800;
+		return $t;
 	}
 
 	static private function autoMinutes()
@@ -233,6 +247,7 @@ class tgconfirm_plugin
 			$need_notify = empty($ext['claimed']) || empty($ext['tg']);
 			if (empty($ext['claimed'])) {
 				$ext['claimed'] = time();
+				$ext['expire'] = $ext['claimed'] + self::confirmTimeout();
 			}
 			if ($photo) {
 				$ext['proof'] = 1;
@@ -251,7 +266,8 @@ class tgconfirm_plugin
 			if ($transactionStarted && $DB->inTransaction()) $DB->rollBack();
 			return ['type' => 'json', 'data' => ['code' => -1, 'msg' => $e->getMessage() === '订单处理失败' ? '提交失败，请稍后重试' : $e->getMessage()]];
 		}
-		return ['type' => 'json', 'data' => ['code' => 0, 'msg' => 'ok']];
+		$paytime = !empty($ext['expire']) ? max(0, (int)$ext['expire'] - time()) : 0;
+		return ['type' => 'json', 'data' => ['code' => 0, 'msg' => 'ok', 'paytime' => $paytime]];
 	}
 
 	static public function status()
@@ -441,7 +457,7 @@ class tgconfirm_plugin
 
 		self::validateConfig();
 
-		$timeout = self::timeout();
+		$timeout = self::payTimeout();
 		$trade_no = TRADE_NO;
 
 		$transactionStarted = false;

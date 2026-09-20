@@ -304,6 +304,7 @@ $('#claimBtn').on('click', function () {
       }
       if (data.code == 0) {
         showWait();
+        if (data.paytime > 0) startCountdown(data.paytime);
         setTimeout(loadmsg, 2000);
         return;
       }
@@ -317,9 +318,11 @@ $('#claimBtn').on('click', function () {
   });
 });
 function startCountdown(duration) {
+  if (window.countdownInterval) clearInterval(window.countdownInterval);
   var timer = duration;
   var el = document.getElementById('remain');
   var overlay = document.getElementById('qrExpiredOverlay');
+  if (timer > 0) overlay.classList.remove('show');
   var tick = function () {
     if (timer <= 0) {
       el.textContent = '00:00:00';
